@@ -34,6 +34,15 @@ function App() {
   const [blueValue, setBlueValue] = useState(255)
   const [singleColor, setSingleColor] = useState("#ffffff")
 
+  const handleExport = () => {
+    if (editedImage) {
+      const link = document.createElement('a')
+      link.download = 'dithered_image.png'
+      link.href = editedImage
+      link.click()
+    }
+  }
+
   useEffect(() => {
     if (originalImage) {
       const canvas = document.createElement('canvas')
@@ -509,6 +518,29 @@ function App() {
               />
             </>
           )}
+          <div className="file-input-container">
+            <button 
+              onClick={handleExport}
+              disabled={!editedImage}
+              style={{
+                width: '100%',
+                background: '#000000',
+                border: '2px solid',
+                borderTopColor: '#ffffff',
+                borderLeftColor: '#ffffff',
+                borderBottomColor: '#808080',
+                borderRightColor: '#808080',
+                color: 'white',
+                padding: '4px',
+                fontSize: '0.6rem',
+                cursor: editedImage ? 'pointer' : 'not-allowed',
+                opacity: editedImage ? 1 : 0.5,
+                marginTop: '10px'
+              }}
+            >
+              Export Image
+            </button>
+          </div>
         </div>
       </Rnd>
       <div style={{
