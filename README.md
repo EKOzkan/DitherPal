@@ -31,7 +31,7 @@ DitherPal is a powerful web-based image dithering tool that allows you to apply 
 
 ## Usage
 
-1. Visit [https://[your-github-username].github.io/DitherPal](https://[your-github-username].github.io/DitherPal)
+1. Visit [https://ekozkan.github.io/DitherPal/](https://ekozkan.github.io/DitherPal/)
 2. Click "Choose Image" to upload an image
 3. Adjust the settings to create your desired effect
 4. Pan and zoom to explore your creation
@@ -42,7 +42,7 @@ To run this project locally:
 
 1. Clone the repository
 ```bash
-git clone https://github.com/[your-github-username]/DitherPal.git
+git clone https://github.com/ekozkanDitherPal.git
 cd DitherPal
 ```
 
