@@ -45,42 +45,159 @@ export const floydSteinberg = (imageData) => {
   return out;
 };
 
-// Bayer Ordered (8x8)
-export const bayerOrdered = (imageData) => {
-  const data = imageData.data;
+// False Floyd-Steinberg (fast diffusion)
+export const falseFloydSteinberg = (imageData) => {
   const width = imageData.width;
   const height = imageData.height;
-  const matrix = [
-    [0, 48, 12, 60, 3, 51, 15, 63],
-    [32, 16, 44, 28, 35, 19, 47, 31],
-    [8, 56, 4, 52, 11, 59, 7, 55],
-    [40, 24, 36, 20, 43, 27, 39, 23],
-    [2, 50, 14, 62, 1, 49, 13, 61],
-    [34, 18, 46, 30, 33, 17, 45, 29],
-    [10, 58, 6, 54, 9, 57, 5, 53],
-    [42, 26, 38, 22, 41, 25, 37, 21]
-  ];
+  const src = imageData.data;
+
+  const gray = new Float32Array(width * height);
+  const alpha = new Uint8ClampedArray(width * height);
+  for (let i = 0, p = 0; p < gray.length; i += 4, p++) {
+    gray[p] = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
+    alpha[p] = src[i + 3];
+  }
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      // Calculate luminance using proper weights
-      const luminance = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
-      
-      // Only apply dithering if the pixel isn't close to black
-      if (luminance > 10) {
-        const threshold = (matrix[y % 8][x % 8] / 64) * 255;
-        const value = luminance < threshold ? 0 : 255;
-        data[idx] = value;
-        data[idx + 1] = value;
-        data[idx + 2] = value;
-      } else {
-        // Keep very dark pixels black
-        data[idx] = data[idx + 1] = data[idx + 2] = 0;
+      const p = y * width + x;
+      const oldVal = gray[p];
+      const newVal = oldVal < 128 ? 0 : 255;
+      const err = oldVal - newVal;
+      gray[p] = newVal;
+
+      if (x + 1 < width) gray[p + 1] += err * (3 / 8);
+      if (y + 1 < height) {
+        gray[p + width] += err * (3 / 8);
+        if (x + 1 < width) gray[p + width + 1] += err * (2 / 8);
       }
     }
   }
-  return imageData;
+
+  const out = new ImageData(width, height);
+  for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
+    const v = Math.max(0, Math.min(255, Math.round(gray[p])));
+    out.data[i] = v;
+    out.data[i + 1] = v;
+    out.data[i + 2] = v;
+    out.data[i + 3] = alpha[p];
+  }
+  return out;
+};
+
+// Floyd-Steinberg (Serpentine scanning)
+export const floydSteinbergSerpentine = (imageData) => {
+  const width = imageData.width;
+  const height = imageData.height;
+  const src = imageData.data;
+
+  const gray = new Float32Array(width * height);
+  const alpha = new Uint8ClampedArray(width * height);
+  for (let i = 0, p = 0; p < gray.length; i += 4, p++) {
+    gray[p] = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
+    alpha[p] = src[i + 3];
+  }
+
+  for (let y = 0; y < height; y++) {
+    const dir = y % 2 === 0 ? 1 : -1;
+    const xStart = dir === 1 ? 0 : width - 1;
+    const xEnd = dir === 1 ? width : -1;
+
+    for (let x = xStart; x !== xEnd; x += dir) {
+      const p = y * width + x;
+      const oldVal = gray[p];
+      const newVal = oldVal < 128 ? 0 : 255;
+      const err = oldVal - newVal;
+      gray[p] = newVal;
+
+      const xn = x + dir;
+      if (xn >= 0 && xn < width) gray[p + dir] += err * (7 / 16);
+
+      if (y + 1 < height) {
+        const r1 = p + width;
+        const xb = x - dir;
+        if (xb >= 0 && xb < width) gray[r1 - dir] += err * (3 / 16);
+        gray[r1] += err * (5 / 16);
+        if (xn >= 0 && xn < width) gray[r1 + dir] += err * (1 / 16);
+      }
+    }
+  }
+
+  const out = new ImageData(width, height);
+  for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
+    const v = Math.max(0, Math.min(255, Math.round(gray[p])));
+    out.data[i] = v;
+    out.data[i + 1] = v;
+    out.data[i + 2] = v;
+    out.data[i + 3] = alpha[p];
+  }
+  return out;
+};
+
+// Ordered dithering using Bayer matrices (4x4, 8x8, 16x16)
+function buildBayerMatrix(size) {
+  let M = [
+    [0, 2],
+    [3, 1]
+  ];
+  let n = 2;
+  while (n < size) {
+    const M2 = new Array(n * 2).fill(0).map(() => new Array(n * 2).fill(0));
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        const v = M[y][x] * 4;
+        M2[y][x] = v + 0;
+        M2[y][x + n] = v + 2;
+        M2[y + n][x] = v + 3;
+        M2[y + n][x + n] = v + 1;
+      }
+    }
+    M = M2;
+    n *= 2;
+  }
+  return M;
+}
+
+function applyOrderedDither(imageData, matrix) {
+  const width = imageData.width;
+  const height = imageData.height;
+  const src = imageData.data;
+  const out = new ImageData(width, height);
+  const outData = out.data;
+  const mSize = matrix.length;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const lum = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
+      if (lum > 10) {
+        const threshold = (matrix[y % mSize][x % mSize] / (mSize * mSize)) * 255;
+        const v = lum < threshold ? 0 : 255;
+        outData[i] = outData[i + 1] = outData[i + 2] = v;
+      } else {
+        outData[i] = outData[i + 1] = outData[i + 2] = 0;
+      }
+      outData[i + 3] = 255;
+    }
+  }
+  return out;
+}
+
+// Bayer Ordered (8x8)
+export const bayerOrdered = (imageData) => {
+  const matrix = buildBayerMatrix(8);
+  return applyOrderedDither(imageData, matrix);
+};
+
+// Bayer Ordered (4x4)
+export const bayerOrdered4x4 = (imageData) => {
+  const matrix = buildBayerMatrix(4);
+  return applyOrderedDither(imageData, matrix);
+};
+
+// Bayer Ordered (16x16)
+export const bayerOrdered16x16 = (imageData) => {
+  const matrix = buildBayerMatrix(16);
+  return applyOrderedDither(imageData, matrix);
 };
 
 // Random Ordered
@@ -698,4 +815,63 @@ export const asciiArt = (imageData) => {
   }
   
   return output
+}
+
+// Halftone using circular dots per cell
+export const halftoneCircles = (imageData, cellSize = 8) => {
+  const width = imageData.width
+  const height = imageData.height
+  const src = imageData.data
+  const out = new ImageData(width, height)
+  const outData = out.data
+
+  // Initialize to white background
+  for (let i = 0; i < outData.length; i += 4) {
+    outData[i] = 255
+    outData[i + 1] = 255
+    outData[i + 2] = 255
+    outData[i + 3] = 255
+  }
+
+  for (let y0 = 0; y0 < height; y0 += cellSize) {
+    for (let x0 = 0; x0 < width; x0 += cellSize) {
+      const tileW = Math.min(cellSize, width - x0)
+      const tileH = Math.min(cellSize, height - y0)
+
+      // Average luminance in this cell
+      let sum = 0
+      let count = 0
+      for (let ty = 0; ty < tileH; ty++) {
+        for (let tx = 0; tx < tileW; tx++) {
+          const x = x0 + tx
+          const y = y0 + ty
+          const i = (y * width + x) * 4
+          sum += 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2]
+          count++
+        }
+      }
+      const avg = sum / count
+
+      const cx = x0 + tileW / 2
+      const cy = y0 + tileH / 2
+      const maxR = Math.min(tileW, tileH) / 2 - 0.1
+      const radius = (1 - avg / 255) * maxR
+      const r2 = radius * radius
+
+      for (let ty = 0; ty < tileH; ty++) {
+        for (let tx = 0; tx < tileW; tx++) {
+          const x = x0 + tx
+          const y = y0 + ty
+          const dx = (x + 0.5) - cx
+          const dy = (y + 0.5) - cy
+          const i = (y * width + x) * 4
+          if (dx * dx + dy * dy <= r2) {
+            outData[i] = outData[i + 1] = outData[i + 2] = 0
+          }
+        }
+      }
+    }
+  }
+
+  return out
 }
