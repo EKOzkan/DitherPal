@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import './App.css'
 import { Rnd } from 'react-rnd'
 import {
-  none,
   floydSteinberg,
   jarvisJudiceNinke,
   atkinson,
@@ -33,6 +32,7 @@ function App() {
   const [greenValue, setGreenValue] = useState(255)
   const [blueValue, setBlueValue] = useState(255)
   const [singleColor, setSingleColor] = useState("#ffffff")
+  const [crtEnabled, setCrtEnabled] = useState(false)
 
   const handleExport = () => {
     if (editedImage) {
@@ -187,6 +187,11 @@ function App() {
           0, 0, canvas.width, canvas.height,
           0, 0, finalCanvas.width, finalCanvas.height
         )
+
+        // Apply CRT overlay if enabled
+        if (crtEnabled) {
+          applyCRTEffect(finalCtx, finalCanvas.width, finalCanvas.height)
+        }
         
         // Convert to data URL and update state
         setEditedImage(finalCanvas.toDataURL())
@@ -194,7 +199,7 @@ function App() {
       image.src = originalImage
     }
     console.log("effect applied with algorithm:", algorithm)
-  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor])
+  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled])
 
   function applyContrast(imageData, contrastValue) {
     const data = imageData.data
@@ -322,6 +327,37 @@ function App() {
     }
 
     return result
+  }
+
+  function applyCRTEffect(ctx, width, height) {
+    ctx.save()
+
+    // Horizontal scanlines
+    ctx.globalAlpha = 0.12
+    ctx.fillStyle = '#000000'
+    for (let y = 0; y < height; y += 2) {
+      ctx.fillRect(0, y, width, 1)
+    }
+
+    // Subtle vertical aperture grille
+    ctx.globalAlpha = 0.05
+    for (let x = 0; x < width; x += 3) {
+      ctx.fillRect(x, 0, 1, height)
+    }
+
+    // Vignette to darken edges
+    const maxDim = Math.max(width, height)
+    const gradient = ctx.createRadialGradient(
+      width / 2, height / 2, 0,
+      width / 2, height / 2, maxDim / 1.1
+    )
+    gradient.addColorStop(0, 'rgba(0,0,0,0)')
+    gradient.addColorStop(1, 'rgba(0,0,0,0.28)')
+    ctx.globalAlpha = 1
+    ctx.fillStyle = gradient
+    ctx.fillRect(0, 0, width, height)
+
+    ctx.restore()
   }
 
   return (
@@ -471,6 +507,20 @@ function App() {
               setBloom(parseInt(e.target.value, 10))
             }}
           />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input
+              type="checkbox"
+              checked={crtEnabled}
+              onChange={(e) => setCrtEnabled(e.target.checked)}
+              style={{
+                width: '15px',
+                height: '15px',
+                cursor: 'pointer',
+                accentColor: 'black'
+              }}
+            />
+            <div style={{ margin: 0 }}>{'>'} CRT_Effect_</div>
+          </div>
           <div>{'>'} Color_Mode_</div>
           <select
             value={colorMode}
