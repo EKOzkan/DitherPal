@@ -1,43 +1,49 @@
-import React from 'react';
-
 // None
 export const none = (imageData) => imageData;
 
 // Floyd-Steinberg
 export const floydSteinberg = (imageData) => {
-    // Create a copy of the input data
-    const output = new ImageData(
-      new Uint8ClampedArray(imageData.data),
-      imageData.width,
-      imageData.height
-    );
-    const data = output.data;
-    const width = imageData.width;
-    const height = imageData.height;
-  
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const idx = (y * width + x) * 4;
-        for (let c = 0; c < 3; c++) {  // Only RGB, preserve alpha
-          const oldVal = data[idx + c];
-          const newVal = oldVal < 128 ? 0 : 255;
-          data[idx + c] = newVal;
-          const err = oldVal - newVal;
-  
-          if (x + 1 < width) 
-            data[idx + 4 + c] = Math.round(data[idx + 4 + c] + err * 7/16);
-          if (y + 1 < height) {
-            if (x > 0) 
-              data[idx + width*4 - 4 + c] = Math.round(data[idx + width*4 - 4 + c] + err * 3/16);
-            data[idx + width*4 + c] = Math.round(data[idx + width*4 + c] + err * 5/16);
-            if (x + 1 < width) 
-              data[idx + width*4 + 4 + c] = Math.round(data[idx + width*4 + 4 + c] + err * 1/16);
-          }
-        }
+  const width = imageData.width;
+  const height = imageData.height;
+  const src = imageData.data;
+
+  // Build a grayscale working buffer so diffusion operates on luminance
+  const gray = new Float32Array(width * height);
+  const alpha = new Uint8ClampedArray(width * height);
+  for (let i = 0, p = 0; p < gray.length; i += 4, p++) {
+    gray[p] = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
+    alpha[p] = src[i + 3];
+  }
+
+  // Error diffusion
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const p = y * width + x;
+      const oldVal = gray[p];
+      const newVal = oldVal < 128 ? 0 : 255;
+      const err = oldVal - newVal;
+      gray[p] = newVal;
+
+      if (x + 1 < width) gray[p + 1] += err * 7 / 16;
+      if (y + 1 < height) {
+        if (x > 0) gray[p + width - 1] += err * 3 / 16;
+        gray[p + width] += err * 5 / 16;
+        if (x + 1 < width) gray[p + width + 1] += err * 1 / 16;
       }
     }
-    return output;
-  };
+  }
+
+  // Write back to a new ImageData (grayscale RGB)
+  const out = new ImageData(width, height);
+  for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
+    const v = Math.max(0, Math.min(255, Math.round(gray[p])));
+    out.data[i] = v;
+    out.data[i + 1] = v;
+    out.data[i + 2] = v;
+    out.data[i + 3] = alpha[p];
+  }
+  return out;
+};
 
 // Bayer Ordered (8x8)
 export const bayerOrdered = (imageData) => {
@@ -111,172 +117,259 @@ export const randomOrdered = (imageData, seed = 1) => {
 
 // Atkinson
 export const atkinson = (imageData) => {
-    // Create a copy of the input data
-    const output = new ImageData(
-      new Uint8ClampedArray(imageData.data),
-      imageData.width,
-      imageData.height
-    );
-    const data = output.data;
-    const width = imageData.width;
-    const height = imageData.height;
-
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const idx = (y * width + x) * 4;
-        for (let c = 0; c < 3; c++) {
-          const oldVal = data[idx + c];
-          const newVal = oldVal < 128 ? 0 : 255;
-          data[idx + c] = newVal;
-          const err = Math.floor((oldVal - newVal) / 8);
-
-          if (x + 1 < width) data[idx + 4 + c] += err;
-          if (x + 2 < width) data[idx + 8 + c] += err;
-          if (y + 1 < height) {
-            if (x > 0) data[idx + width*4 - 4 + c] += err;
-            data[idx + width*4 + c] += err;
-            if (x + 1 < width) data[idx + width*4 + 4 + c] += err;
-          }
-          if (y + 2 < height) data[idx + width*8 + c] += err;
-        }
-      }
-    }
-    return output;
-  };
-
-// Jarvis-Judice-Ninke
-export const jarvisJudiceNinke = (imageData) => {
-  const data = imageData.data;
   const width = imageData.width;
   const height = imageData.height;
+  const src = imageData.data;
+
+  const gray = new Float32Array(width * height);
+  const alpha = new Uint8ClampedArray(width * height);
+  for (let i = 0, p = 0; p < gray.length; i += 4, p++) {
+    gray[p] = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
+    alpha[p] = src[i + 3];
+  }
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      for (let c = 0; c < 3; c++) {
-        const oldVal = data[idx + c];
-        const newVal = oldVal < 128 ? 0 : 255;
-        data[idx + c] = newVal;
-        const err = (oldVal - newVal) / 48;
+      const p = y * width + x;
+      const oldVal = gray[p];
+      const newVal = oldVal < 128 ? 0 : 255;
+      const err = (oldVal - newVal) / 8; // distribute equally to 6 neighbors
+      gray[p] = newVal;
 
-        if (x + 1 < width) data[idx + 4 + c] += err * 7;
-        if (x + 2 < width) data[idx + 8 + c] += err * 5;
-        if (y + 1 < height) {
-          if (x > 1) data[idx + width*4 - 8 + c] += err * 3;
-          if (x > 0) data[idx + width*4 - 4 + c] += err * 5;
-          data[idx + width*4 + c] += err * 7;
-          if (x + 1 < width) data[idx + width*4 + 4 + c] += err * 5;
-          if (x + 2 < width) data[idx + width*4 + 8 + c] += err * 3;
-        }
-        if (y + 2 < height) {
-          if (x > 1) data[idx + width*8 - 8 + c] += err * 1;
-          if (x > 0) data[idx + width*8 - 4 + c] += err * 2;
-          data[idx + width*8 + c] += err * 4;
-          if (x + 1 < width) data[idx + width*8 + 4 + c] += err * 2;
-          if (x + 2 < width) data[idx + width*8 + 8 + c] += err * 1;
-        }
+      if (x + 1 < width) gray[p + 1] += err;
+      if (x + 2 < width) gray[p + 2] += err;
+      if (y + 1 < height) {
+        const r1 = p + width;
+        if (x > 0) gray[r1 - 1] += err;
+        gray[r1] += err;
+        if (x + 1 < width) gray[r1 + 1] += err;
+      }
+      if (y + 2 < height) gray[p + 2 * width] += err;
+    }
+  }
+
+  const out = new ImageData(width, height);
+  for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
+    const v = Math.max(0, Math.min(255, Math.round(gray[p])));
+    out.data[i] = v;
+    out.data[i + 1] = v;
+    out.data[i + 2] = v;
+    out.data[i + 3] = alpha[p];
+  }
+  return out;
+};
+
+// Jarvis-Judice-Ninke
+export const jarvisJudiceNinke = (imageData) => {
+  const width = imageData.width;
+  const height = imageData.height;
+  const src = imageData.data;
+
+  const gray = new Float32Array(width * height);
+  const alpha = new Uint8ClampedArray(width * height);
+  for (let i = 0, p = 0; p < gray.length; i += 4, p++) {
+    gray[p] = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
+    alpha[p] = src[i + 3];
+  }
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const p = y * width + x;
+      const oldVal = gray[p];
+      const newVal = oldVal < 128 ? 0 : 255;
+      const err = oldVal - newVal;
+      gray[p] = newVal;
+
+      // row 0
+      if (x + 1 < width) gray[p + 1] += err * (7 / 48);
+      if (x + 2 < width) gray[p + 2] += err * (5 / 48);
+      // row 1
+      if (y + 1 < height) {
+        const r1 = p + width;
+        if (x > 1) gray[r1 - 2] += err * (3 / 48);
+        if (x > 0) gray[r1 - 1] += err * (5 / 48);
+        gray[r1] += err * (7 / 48);
+        if (x + 1 < width) gray[r1 + 1] += err * (5 / 48);
+        if (x + 2 < width) gray[r1 + 2] += err * (3 / 48);
+      }
+      // row 2
+      if (y + 2 < height) {
+        const r2 = p + width * 2;
+        if (x > 1) gray[r2 - 2] += err * (1 / 48);
+        if (x > 0) gray[r2 - 1] += err * (3 / 48);
+        gray[r2] += err * (5 / 48);
+        if (x + 1 < width) gray[r2 + 1] += err * (3 / 48);
+        if (x + 2 < width) gray[r2 + 2] += err * (1 / 48);
       }
     }
   }
-  return imageData;
+
+  const out = new ImageData(width, height);
+  for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
+    const v = Math.max(0, Math.min(255, Math.round(gray[p])));
+    out.data[i] = v;
+    out.data[i + 1] = v;
+    out.data[i + 2] = v;
+    out.data[i + 3] = alpha[p];
+  }
+  return out;
 };
 
 // Stucki
 export const stucki = (imageData) => {
-  const data = imageData.data;
   const width = imageData.width;
   const height = imageData.height;
+  const src = imageData.data;
+
+  const gray = new Float32Array(width * height);
+  const alpha = new Uint8ClampedArray(width * height);
+  for (let i = 0, p = 0; p < gray.length; i += 4, p++) {
+    gray[p] = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
+    alpha[p] = src[i + 3];
+  }
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      for (let c = 0; c < 3; c++) {
-        const oldVal = data[idx + c];
-        const newVal = oldVal < 128 ? 0 : 255;
-        data[idx + c] = newVal;
-        const err = (oldVal - newVal) / 42;
+      const p = y * width + x;
+      const oldVal = gray[p];
+      const newVal = oldVal < 128 ? 0 : 255;
+      const err = oldVal - newVal;
+      gray[p] = newVal;
 
-        if (x + 1 < width) data[idx + 4 + c] += err * 8;
-        if (x + 2 < width) data[idx + 8 + c] += err * 4;
-        if (y + 1 < height) {
-          if (x > 1) data[idx + width*4 - 8 + c] += err * 2;
-          if (x > 0) data[idx + width*4 - 4 + c] += err * 4;
-          data[idx + width*4 + c] += err * 8;
-          if (x + 1 < width) data[idx + width*4 + 4 + c] += err * 4;
-          if (x + 2 < width) data[idx + width*4 + 8 + c] += err * 2;
-        }
-        if (y + 2 < height) {
-          if (x > 1) data[idx + width*8 - 8 + c] += err * 1;
-          if (x > 0) data[idx + width*8 - 4 + c] += err * 2;
-          data[idx + width*8 + c] += err * 4;
-          if (x + 1 < width) data[idx + width*8 + 4 + c] += err * 2;
-          if (x + 2 < width) data[idx + width*8 + 8 + c] += err * 1;
-        }
+      // row 0
+      if (x + 1 < width) gray[p + 1] += err * (8 / 42);
+      if (x + 2 < width) gray[p + 2] += err * (4 / 42);
+      // row 1
+      if (y + 1 < height) {
+        const r1 = p + width;
+        if (x > 1) gray[r1 - 2] += err * (2 / 42);
+        if (x > 0) gray[r1 - 1] += err * (4 / 42);
+        gray[r1] += err * (8 / 42);
+        if (x + 1 < width) gray[r1 + 1] += err * (4 / 42);
+        if (x + 2 < width) gray[r1 + 2] += err * (2 / 42);
+      }
+      // row 2
+      if (y + 2 < height) {
+        const r2 = p + width * 2;
+        if (x > 1) gray[r2 - 2] += err * (1 / 42);
+        if (x > 0) gray[r2 - 1] += err * (2 / 42);
+        gray[r2] += err * (4 / 42);
+        if (x + 1 < width) gray[r2 + 1] += err * (2 / 42);
+        if (x + 2 < width) gray[r2 + 2] += err * (1 / 42);
       }
     }
   }
-  return imageData;
+
+  const out = new ImageData(width, height);
+  for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
+    const v = Math.max(0, Math.min(255, Math.round(gray[p])));
+    out.data[i] = v;
+    out.data[i + 1] = v;
+    out.data[i + 2] = v;
+    out.data[i + 3] = alpha[p];
+  }
+  return out;
 };
 
 // Burkes
 export const burkes = (imageData) => {
-  const data = imageData.data;
   const width = imageData.width;
   const height = imageData.height;
+  const src = imageData.data;
+
+  const gray = new Float32Array(width * height);
+  const alpha = new Uint8ClampedArray(width * height);
+  for (let i = 0, p = 0; p < gray.length; i += 4, p++) {
+    gray[p] = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
+    alpha[p] = src[i + 3];
+  }
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      for (let c = 0; c < 3; c++) {
-        const oldVal = data[idx + c];
-        const newVal = oldVal < 128 ? 0 : 255;
-        data[idx + c] = newVal;
-        const err = (oldVal - newVal) / 32;
+      const p = y * width + x;
+      const oldVal = gray[p];
+      const newVal = oldVal < 128 ? 0 : 255;
+      const err = oldVal - newVal;
+      gray[p] = newVal;
 
-        if (x + 1 < width) data[idx + 4 + c] += err * 8;
-        if (x + 2 < width) data[idx + 8 + c] += err * 4;
-        if (y + 1 < height) {
-          if (x > 1) data[idx + width*4 - 8 + c] += err * 2;
-          if (x > 0) data[idx + width*4 - 4 + c] += err * 4;
-          data[idx + width*4 + c] += err * 8;
-          if (x + 1 < width) data[idx + width*4 + 4 + c] += err * 4;
-          if (x + 2 < width) data[idx + width*4 + 8 + c] += err * 2;
-        }
+      // row 0
+      if (x + 1 < width) gray[p + 1] += err * (8 / 32);
+      if (x + 2 < width) gray[p + 2] += err * (4 / 32);
+      // row 1
+      if (y + 1 < height) {
+        const r1 = p + width;
+        if (x > 1) gray[r1 - 2] += err * (2 / 32);
+        if (x > 0) gray[r1 - 1] += err * (4 / 32);
+        gray[r1] += err * (8 / 32);
+        if (x + 1 < width) gray[r1 + 1] += err * (4 / 32);
+        if (x + 2 < width) gray[r1 + 2] += err * (2 / 32);
       }
     }
   }
-  return imageData;
+
+  const out = new ImageData(width, height);
+  for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
+    const v = Math.max(0, Math.min(255, Math.round(gray[p])));
+    out.data[i] = v;
+    out.data[i + 1] = v;
+    out.data[i + 2] = v;
+    out.data[i + 3] = alpha[p];
+  }
+  return out;
 };
 
-// Sierra
+// Sierra (3-row)
 export const sierra = (imageData) => {
-  const data = imageData.data;
   const width = imageData.width;
   const height = imageData.height;
+  const src = imageData.data;
+
+  const gray = new Float32Array(width * height);
+  const alpha = new Uint8ClampedArray(width * height);
+  for (let i = 0, p = 0; p < gray.length; i += 4, p++) {
+    gray[p] = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
+    alpha[p] = src[i + 3];
+  }
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      for (let c = 0; c < 3; c++) {
-        const oldVal = data[idx + c];
-        const newVal = oldVal < 128 ? 0 : 255;
-        data[idx + c] = newVal;
-        const err = (oldVal - newVal) / 32;
+      const p = y * width + x;
+      const oldVal = gray[p];
+      const newVal = oldVal < 128 ? 0 : 255;
+      const err = oldVal - newVal;
+      gray[p] = newVal;
 
-        if (x + 1 < width) data[idx + 4 + c] += err * 5;
-        if (x + 2 < width) data[idx + 8 + c] += err * 3;
-        if (y + 1 < height) {
-          if (x > 1) data[idx + width*4 - 8 + c] += err * 2;
-          if (x > 0) data[idx + width*4 - 4 + c] += err * 4;
-          data[idx + width*4 + c] += err * 5;
-          if (x + 1 < width) data[idx + width*4 + 4 + c] += err * 4;
-          if (x + 2 < width) data[idx + width*4 + 8 + c] += err * 2;
-        }
-        if (y + 2 < height) data[idx + width*8 + c] += err * 2;
+      // row 0
+      if (x + 1 < width) gray[p + 1] += err * (5 / 32);
+      if (x + 2 < width) gray[p + 2] += err * (3 / 32);
+      // row 1
+      if (y + 1 < height) {
+        const r1 = p + width;
+        if (x > 1) gray[r1 - 2] += err * (2 / 32);
+        if (x > 0) gray[r1 - 1] += err * (4 / 32);
+        gray[r1] += err * (5 / 32);
+        if (x + 1 < width) gray[r1 + 1] += err * (4 / 32);
+        if (x + 2 < width) gray[r1 + 2] += err * (2 / 32);
+      }
+      // row 2
+      if (y + 2 < height) {
+        const r2 = p + width * 2;
+        if (x > 0) gray[r2 - 1] += err * (2 / 32);
+        gray[r2] += err * (3 / 32);
+        if (x + 1 < width) gray[r2 + 1] += err * (2 / 32);
       }
     }
   }
-  return imageData;
+
+  const out = new ImageData(width, height);
+  for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
+    const v = Math.max(0, Math.min(255, Math.round(gray[p])));
+    out.data[i] = v;
+    out.data[i + 1] = v;
+    out.data[i + 2] = v;
+    out.data[i + 3] = alpha[p];
+  }
+  return out;
 };
 
 // Sierra Lite
