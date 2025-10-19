@@ -3,16 +3,23 @@ import './App.css'
 import { Rnd } from 'react-rnd'
 import {
   floydSteinberg,
+  floydSteinbergSerpentine,
+  falseFloydSteinberg,
   jarvisJudiceNinke,
   atkinson,
   stucki,
   burkes,
   sierra,
+  twoRowSierra,
+  sierraLite,
   bayerOrdered,
+  bayerOrdered4x4,
+  bayerOrdered16x16,
   randomOrdered,
   bitTone,
   crossPlus,
-  asciiArt
+  asciiArt,
+  halftoneCircles
 } from './operations/algorithms'
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 
@@ -91,6 +98,12 @@ function App() {
           case "floydSteinberg":
             ditheredData = floydSteinberg(processedData)
             break
+          case "floydSteinbergSerpentine":
+            ditheredData = floydSteinbergSerpentine(processedData)
+            break
+          case "falseFloydSteinberg":
+            ditheredData = falseFloydSteinberg(processedData)
+            break
           case "jarvisJudiceNinke":
             ditheredData = jarvisJudiceNinke(processedData)
             break
@@ -106,8 +119,20 @@ function App() {
           case "sierra":
             ditheredData = sierra(processedData)
             break
+          case "twoRowSierra":
+            ditheredData = twoRowSierra(processedData)
+            break
+          case "sierraLite":
+            ditheredData = sierraLite(processedData)
+            break
           case "bayerOrdered":
             ditheredData = bayerOrdered(processedData)
+            break
+          case "bayerOrdered4x4":
+            ditheredData = bayerOrdered4x4(processedData)
+            break
+          case "bayerOrdered16x16":
+            ditheredData = bayerOrdered16x16(processedData)
             break
           case "randomOrdered":
             ditheredData = randomOrdered(processedData)
@@ -120,6 +145,9 @@ function App() {
             break
           case "asciiArt":
             ditheredData = asciiArt(processedData)
+            break
+          case "halftoneCircles":
+            ditheredData = halftoneCircles(processedData)
             break
           default:
             ditheredData = processedData
@@ -486,13 +514,20 @@ function App() {
           >
             <option value="none">None</option>
             <option value="floydSteinberg">Floyd-Steinberg</option>
+            <option value="floydSteinbergSerpentine">Floyd-Steinberg (Serpentine)</option>
+            <option value="falseFloydSteinberg">False Floyd-Steinberg</option>
             <option value="jarvisJudiceNinke">Jarvis-Judice-Ninke</option>
             <option value="atkinson">Atkinson</option>
             <option value="stucki">Stucki</option>
             <option value="burkes">Burkes</option>
-            <option value="sierra">Sierra</option>
-            <option value="bayerOrdered">Bayer Ordered</option>
+            <option value="sierra">Sierra (3-row)</option>
+            <option value="twoRowSierra">Sierra (Two-row)</option>
+            <option value="sierraLite">Sierra Lite</option>
+            <option value="bayerOrdered">Bayer Ordered 8x8</option>
+            <option value="bayerOrdered4x4">Bayer Ordered 4x4</option>
+            <option value="bayerOrdered16x16">Bayer Ordered 16x16</option>
             <option value="randomOrdered">Random Ordered</option>
+            <option value="halftoneCircles">Halftone (Circles)</option>
             <option value="bitTone">Bit Tone</option>
             <option value="crossPlus">Cross Plus</option>
             <option value="asciiArt">ASCII Art</option>
