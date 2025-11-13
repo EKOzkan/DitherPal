@@ -6,6 +6,7 @@ export class ImageToVideoProcessor {
     this.sourceImage = null
     this.canvas = null
     this.ctx = null
+    this.textOverlay = null
   }
 
   async loadImage(imageDataUrl) {
@@ -48,17 +49,25 @@ export class ImageToVideoProcessor {
         baseOptions, 
         progress, 
         animationType, 
-        animationParams,
-        i,
-        totalFrames
+        animationParams
       )
       
       // Apply dithering with animated parameters
-      const processedFrame = await this.applyDithering(
+      let processedFrame = await this.applyDithering(
         imageData, 
         ditheringAlgorithm, 
         animatedOptions
       )
+      
+      // Apply text overlay if configured
+      if (this.textOverlay && this.textOverlay.textLayers.length > 0) {
+        processedFrame = this.textOverlay.applyTextOverlay(
+          processedFrame,
+          i / frameRate,
+          i,
+          totalFrames
+        )
+      }
       
       this.processedFrames.push({
         data: processedFrame,
@@ -75,7 +84,7 @@ export class ImageToVideoProcessor {
     return this.processedFrames
   }
 
-  calculateAnimatedParams(baseOptions, progress, animationType, animationParams, frameNumber, totalFrames) {
+  calculateAnimatedParams(baseOptions, progress, animationType, animationParams) {
     const options = { ...baseOptions }
     const cycles = Math.max(1, animationParams?.cycles ?? 1)
     const intensity = Math.max(0, Math.min(1, animationParams?.intensity ?? 1))
@@ -541,10 +550,15 @@ export class ImageToVideoProcessor {
     return null
   }
 
+  setTextOverlay(textOverlay) {
+    this.textOverlay = textOverlay
+  }
+
   cleanup() {
     this.sourceImage = null
     this.canvas = null
     this.ctx = null
     this.processedFrames = []
+    this.textOverlay = null
   }
 }

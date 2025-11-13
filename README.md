@@ -66,6 +66,33 @@ DitherPal is a powerful web-based image and video dithering tool that allows you
 - All existing dithering algorithms work with video
 - Time-based animation for glitch effects
 
+### Text Overlay for Video (NEW!)
+- Add animated text overlays to video output
+- Multiple font families:
+  - Arial, Arial Black, Courier New, Comic Sans MS
+  - Georgia, Impact, Times New Roman, Trebuchet MS
+  - Verdana, Helvetica, monospace, cursive, fantasy
+- Text animation types:
+  - **Typewriter**: Reveals text character by character
+  - **Fade In**: Gradually increases opacity
+  - **Slide**: Slides from left, right, top, or bottom
+  - **Zoom**: Scales text from small to normal size
+  - **Bounce**: Bounces text into position
+  - **Rotate**: Rotates text into position
+  - **Wave**: Creates wave motion through letters
+  - **Glow Pulse**: Pulsing glow effect
+  - **None**: Static text without animation
+- Configurable text properties:
+  - Text content, font family, and font size (12-200px)
+  - Text color and stroke (outline) color
+  - Stroke width for text outline (0-10px)
+  - Position (percentage or pixel-based coordinates)
+  - Text alignment (left, center, right)
+  - Animation timing (duration, start time, end time)
+  - Optional drop shadow effect
+- Works with both uploaded videos and image-to-video animations
+- Text is rendered on each frame during processing
+
 ### UI Features
 - Toggle between Image and Video modes
 - Pan and zoom functionality for images
@@ -103,6 +130,30 @@ DitherPal is a powerful web-based image and video dithering tool that allows you
 6. Click "Process Video" to apply effects (this may take some time)
 7. Use the frame navigation slider to preview different frames
 8. Export as GIF or WebM using the respective buttons
+
+### Adding Text Overlay to Video (NEW!)
+1. In **Video** mode (either with uploaded video or generated from image)
+2. Enable the **Text_Overlay** checkbox in the settings panel
+3. Configure your text:
+   - **Text Content**: Enter the text you want to display
+   - **Font Family**: Choose from 13 different font options
+   - **Font Size**: Adjust size from 12px to 200px
+   - **Text Color**: Pick the main text color
+   - **Stroke Color**: Choose outline/border color
+   - **Stroke Width**: Adjust outline thickness (0-10px)
+4. Set text position:
+   - **Position Type**: Choose percentage (relative) or pixels (absolute)
+   - **Position X/Y**: Set horizontal and vertical position
+   - **Text Alignment**: Choose left, center, or right alignment
+5. Configure animation:
+   - **Animation Type**: Select from 11 different animation effects
+   - **Animation Duration**: How long the animation takes (0.1-5s)
+   - **Start Time**: When the text appears in the video (0-30s)
+   - **End Time**: When the text disappears from the video (0-30s)
+   - **Text Shadow**: Enable/disable drop shadow effect
+6. Process your video with "Process Video" or "Generate Animated Video"
+7. The text will be rendered on each frame according to your settings
+8. Export with text overlay included
 
 ## Development
 
@@ -149,6 +200,15 @@ npm run lint
 - Glitch effects are time-based, creating animated variations across frames
 - Export uses MediaRecorder API for WebM and gif.js library for GIF export
 - Processing is done asynchronously to maintain UI responsiveness
+
+### Text Overlay
+- Text is rendered on each frame after dithering using Canvas 2D text rendering
+- Animation progress is calculated based on frame timestamp and animation settings
+- Supports multiple easing functions (ease-in-out-quad, bounce) for smooth animations
+- Text transformations (rotation, scale, translation) are applied using canvas transforms
+- Character-by-character rendering enables advanced effects like typewriter and wave
+- Text layers are composited onto processed frames before export
+- All text properties are configurable per-layer for future multi-text support
 
 ### Performance Considerations
 - Video processing and image-to-video generation are computationally intensive

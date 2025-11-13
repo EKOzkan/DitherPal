@@ -8,6 +8,7 @@ export class VideoProcessor {
     this.frames = []
     this.processedFrames = []
     this.isProcessing = false
+    this.textOverlay = null
   }
 
   async loadVideo(file) {
@@ -145,10 +146,20 @@ export class VideoProcessor {
       }
 
       // Apply dithering
-      const processedFrame = await this.applyDithering(frame.data, ditheringAlgorithm, animatedOptions)
+      let processedFrame = await this.applyDithering(frame.data, ditheringAlgorithm, animatedOptions)
+      
+      // Apply text overlay if configured
+      if (this.textOverlay && this.textOverlay.textLayers.length > 0) {
+        processedFrame = this.textOverlay.applyTextOverlay(
+          processedFrame,
+          frame.timestamp,
+          i,
+          this.frames.length
+        )
+      }
       
       this.processedFrames.push({
-        ...processedFrame,
+        data: processedFrame,
         timestamp: frame.timestamp,
         frameNumber: i
       })
@@ -533,6 +544,10 @@ export class VideoProcessor {
     return null
   }
 
+  setTextOverlay(textOverlay) {
+    this.textOverlay = textOverlay
+  }
+
   cleanup() {
     this.video = null
     this.canvas = null
@@ -540,5 +555,6 @@ export class VideoProcessor {
     this.frames = []
     this.processedFrames = []
     this.isProcessing = false
+    this.textOverlay = null
   }
 }
