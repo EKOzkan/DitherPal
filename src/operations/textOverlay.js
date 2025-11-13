@@ -245,8 +245,6 @@ export class TextOverlay {
   }
 
   drawWaveText(ctx, layer, text, progress) {
-    ctx.clearRect(-1000, -1000, 2000, 2000)
-    
     ctx.font = `${layer.fontSize}px ${layer.fontFamily}`
     const charSpacing = ctx.measureText('M').width * 0.8
     let currentX = 0
