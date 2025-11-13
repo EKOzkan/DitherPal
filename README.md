@@ -31,7 +31,26 @@ DitherPal is a powerful web-based image and video dithering tool that allows you
 - Bloom effect
 - CRT overlay effect
 
-### Video Processing (NEW!)
+### Image-to-Video Animation (NEW!)
+- Convert static images into animated videos with dithering effects
+- Multiple animation types:
+  - **Threshold Wave**: Pulsing threshold with sine wave pattern
+  - **Threshold Sweep**: Linear sweep through threshold values
+  - **Contrast Pulse**: Animated contrast oscillation
+  - **Color Cycle**: Cycle through HSL color spectrum
+  - **Bloom Pulse**: Pulsing bloom/glow effect
+  - **RGB Split**: Independent RGB channel animation with phase offsets
+  - **Glitch Wave**: Animated glitch intensity
+  - **All Parameters**: Complex multi-parameter animation
+- Configurable settings:
+  - Duration (1-10 seconds)
+  - Frame rate (10-60 fps)
+  - Animation cycles (1-10 repetitions)
+  - Animation intensity (0-100%)
+- Export as GIF or WebM
+- Real-time frame preview and navigation
+
+### Video Processing
 - Video upload and frame extraction
 - Animated dithering effects that change over time
 - Multiple glitch effects:
@@ -64,7 +83,14 @@ DitherPal is a powerful web-based image and video dithering tool that allows you
 5. Pan and zoom to explore your creation
 6. Click "Export Image" to download your processed image
 
-### Video Mode (NEW!)
+### Image-to-Video Animation (NEW!)
+1. Stay in **Image** mode and upload your image
+2. Scroll down to the **Image_to_Video_Animation** panel
+3. Choose an animation type, set duration/frame rate/cycles/intensity
+4. Click **Generate Animated Video** – the app will switch to Video mode when ready
+5. Preview the animated frames and export as GIF or WebM
+
+### Video Mode
 1. Click "Video" mode in the settings panel
 2. Click "Choose Video" to upload a video file
 3. Adjust frame rate for processing (higher values = smoother but larger files)
@@ -110,6 +136,13 @@ npm run lint
 
 ## Technical Details
 
+### Image-to-Video Animation
+- Takes a single static image and generates multiple frames with varying dithering parameters
+- Animation parameters are interpolated using mathematical functions (sine waves, linear sweeps, etc.)
+- Each frame applies the dithering algorithm with different settings based on time progress
+- Supports smooth looping animations through cyclic parameter variation
+- Uses the same export pipeline as video processing (GIF/WebM)
+
 ### Video Processing
 - Videos are processed frame-by-frame using Canvas API
 - Each frame is treated as an individual image and processed with the same dithering algorithms
@@ -118,9 +151,10 @@ npm run lint
 - Processing is done asynchronously to maintain UI responsiveness
 
 ### Performance Considerations
-- Video processing is computationally intensive and may take time for longer videos
+- Video processing and image-to-video generation are computationally intensive
 - Frame rate affects both processing time and output file size
 - Lower resolutions and frame rates are recommended for faster processing
+- Image-to-video animation is generally faster than video processing since it reuses the same source
 - GIF export may fall back to WebM if gif.js library is unavailable
 
 ## License
