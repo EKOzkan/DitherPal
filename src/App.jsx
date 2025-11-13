@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './App.css'
 import { Rnd } from 'react-rnd'
 import {
@@ -23,10 +23,21 @@ import {
   grain
 } from './operations/algorithms'
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
+import { VideoProcessor } from './operations/videoProcessor'
 
 function App() {
   const [originalImage, setOriginalImage] = useState(null)
   const [editedImage, setEditedImage] = useState(null)
+  const [mediaType, setMediaType] = useState('image') // 'image' or 'video'
+  const [videoProcessor, setVideoProcessor] = useState(null)
+  const [processedFrames, setProcessedFrames] = useState([])
+  const [currentFrame, setCurrentFrame] = useState(0)
+  const [isProcessingVideo, setIsProcessingVideo] = useState(false)
+  const [frameRate, setFrameRate] = useState(30)
+  const [glitchEnabled, setGlitchEnabled] = useState(false)
+  const [glitchIntensity, setGlitchIntensity] = useState(0.1)
+  const [selectedGlitchEffect, setSelectedGlitchEffect] = useState('dataMosh')
+  const videoProcessorRef = useRef(null)
   const [size, SetSize] = useState(10)
   const [contrast, setContrast] = useState(128)
   const [midtones, setMidtones] = useState(128)
@@ -49,6 +60,169 @@ function App() {
       link.href = editedImage
       link.click()
     }
+  }
+
+  const handleVideoUpload = async (file) => {
+    try {
+      const processor = new VideoProcessor()
+      videoProcessorRef.current = processor
+      await processor.loadVideo(file)
+      setVideoProcessor(processor)
+      setMediaType('video')
+      setOriginalImage(null)
+      setEditedImage(null)
+    } catch (error) {
+      console.error('Error loading video:', error)
+      alert('Error loading video file. Please try a different file.')
+    }
+  }
+
+  const processVideo = async () => {
+    if (!videoProcessor || isProcessingVideo) return
+    
+    setIsProcessingVideo(true)
+    
+    try {
+      // Extract frames from video
+      await videoProcessor.extractFrames(frameRate)
+      
+      // Get the algorithm function based on selection
+      let algorithmFunction
+      switch(algorithm) {
+        case "none":
+          algorithmFunction = (data) => data
+          break
+        case "floydSteinberg":
+          algorithmFunction = floydSteinberg
+          break
+        case "floydSteinbergSerpentine":
+          algorithmFunction = floydSteinbergSerpentine
+          break
+        case "falseFloydSteinberg":
+          algorithmFunction = falseFloydSteinberg
+          break
+        case "jarvisJudiceNinke":
+          algorithmFunction = jarvisJudiceNinke
+          break
+        case "atkinson":
+          algorithmFunction = atkinson
+          break
+        case "stucki":
+          algorithmFunction = stucki
+          break
+        case "burkes":
+          algorithmFunction = burkes
+          break
+        case "sierra":
+          algorithmFunction = sierra
+          break
+        case "twoRowSierra":
+          algorithmFunction = twoRowSierra
+          break
+        case "sierraLite":
+          algorithmFunction = sierraLite
+          break
+        case "bayerOrdered":
+          algorithmFunction = bayerOrdered
+          break
+        case "bayerOrdered4x4":
+          algorithmFunction = bayerOrdered4x4
+          break
+        case "bayerOrdered16x16":
+          algorithmFunction = bayerOrdered16x16
+          break
+        case "randomOrdered":
+          algorithmFunction = randomOrdered
+          break
+        case "bitTone":
+          algorithmFunction = bitTone
+          break
+        case "crossPlus":
+          algorithmFunction = crossPlus
+          break
+        case "asciiArt":
+          algorithmFunction = asciiArt
+          break
+        case "halftoneCircles":
+          algorithmFunction = halftoneCircles
+          break
+        case "grain":
+          algorithmFunction = grain
+          break
+        default:
+          algorithmFunction = (data) => data
+      }
+
+      // Process frames with dithering and effects
+      const processed = await videoProcessor.processFrames(algorithmFunction, {
+        glitchEnabled,
+        glitchIntensity,
+        selectedGlitchEffect,
+        size,
+        contrast,
+        midtones,
+        highlights,
+        threshold,
+        luminanceThresholdEnabled,
+        bloom,
+        colorMode,
+        redValue,
+        greenValue,
+        blueValue,
+        singleColor,
+        crtEnabled
+      })
+
+      setProcessedFrames(processed)
+      
+      // Show first frame
+      if (processed.length > 0) {
+        const firstFramePreview = videoProcessor.getFramePreview(0)
+        setEditedImage(firstFramePreview)
+      }
+      
+    } catch (error) {
+      console.error('Error processing video:', error)
+      alert('Error processing video. Please try again.')
+    } finally {
+      setIsProcessingVideo(false)
+    }
+  }
+
+  const handleVideoExport = async (format) => {
+    if (!videoProcessor || processedFrames.length === 0) return
+    
+    try {
+      let exportUrl
+      if (format === 'gif') {
+        exportUrl = await videoProcessor.exportAsGIF(frameRate)
+      } else if (format === 'mp4') {
+        exportUrl = await videoProcessor.exportAsMP4(frameRate)
+        format = 'webm' // Update to actual format
+      }
+
+      if (exportUrl) {
+        const link = document.createElement('a')
+        link.download = `dithered_video.${format}`
+        link.href = exportUrl
+        link.click()
+        URL.revokeObjectURL(exportUrl)
+      }
+    } catch (error) {
+      console.error('Error exporting video:', error)
+      alert(`Error exporting ${format.toUpperCase()}. Please try again.`)
+    }
+  }
+
+  const switchToImageMode = () => {
+    setMediaType('image')
+    if (videoProcessorRef.current) {
+      videoProcessorRef.current.cleanup()
+      videoProcessorRef.current = null
+    }
+    setVideoProcessor(null)
+    setProcessedFrames([])
+    setCurrentFrame(0)
   }
 
   useEffect(() => {
@@ -231,7 +405,17 @@ function App() {
       image.src = originalImage
     }
     console.log("effect applied with algorithm:", algorithm)
-  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled])
+  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update frame preview when current frame changes
+  useEffect(() => {
+    if (mediaType === 'video' && processedFrames.length > 0 && videoProcessor) {
+      const framePreview = videoProcessor.getFramePreview(currentFrame)
+      if (framePreview) {
+        setEditedImage(framePreview)
+      }
+    }
+  }, [currentFrame, mediaType, processedFrames, videoProcessor])
 
   function applyContrast(imageData, contrastValue) {
     const data = imageData.data
@@ -426,24 +610,82 @@ function App() {
           Settings
         </div>
         <div className="settings-container">
-          <div className="file-input-container">
-            <input
-              type="file"
-              id="file"
-              accept="image/*"
-              onChange={(e) => {
-                const file = e.target.files[0]
-                const reader = new FileReader()
-                reader.onloadend = () => {
-                  setOriginalImage(reader.result)
-                }
-                reader.readAsDataURL(file)
+          <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
+            <button
+              onClick={switchToImageMode}
+              style={{
+                flex: 1,
+                background: mediaType === 'image' ? '#000000' : '#404040',
+                border: '2px solid',
+                borderTopColor: '#ffffff',
+                borderLeftColor: '#ffffff',
+                borderBottomColor: '#808080',
+                borderRightColor: '#808080',
+                color: 'white',
+                padding: '4px',
+                fontSize: '0.6rem',
+                cursor: 'pointer'
               }}
-            />
-            <label htmlFor="file" className="file-input-label">
-              Choose Image
-            </label>
+            >
+              Image
+            </button>
+            <button
+              onClick={() => setMediaType('video')}
+              style={{
+                flex: 1,
+                background: mediaType === 'video' ? '#000000' : '#404040',
+                border: '2px solid',
+                borderTopColor: '#ffffff',
+                borderLeftColor: '#ffffff',
+                borderBottomColor: '#808080',
+                borderRightColor: '#808080',
+                color: 'white',
+                padding: '4px',
+                fontSize: '0.6rem',
+                cursor: 'pointer'
+              }}
+            >
+              Video
+            </button>
           </div>
+
+          {mediaType === 'image' ? (
+            <div className="file-input-container">
+              <input
+                type="file"
+                id="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files[0]
+                  const reader = new FileReader()
+                  reader.onloadend = () => {
+                    setOriginalImage(reader.result)
+                  }
+                  reader.readAsDataURL(file)
+                }}
+              />
+              <label htmlFor="file" className="file-input-label">
+                Choose Image
+              </label>
+            </div>
+          ) : (
+            <div className="file-input-container">
+              <input
+                type="file"
+                id="video"
+                accept="video/*"
+                onChange={(e) => {
+                  const file = e.target.files[0]
+                  if (file) {
+                    handleVideoUpload(file)
+                  }
+                }}
+              />
+              <label htmlFor="video" className="file-input-label">
+                Choose Video
+              </label>
+            </div>
+          )}
           <div>{'>'} Size_</div>
           <input
             type="range"
@@ -607,30 +849,182 @@ function App() {
                 style={{ width: "100%" }}
               />
             </>
-          )}
-          <div className="file-input-container">
-            <button 
-              onClick={handleExport}
-              disabled={!editedImage}
-              style={{
-                width: '100%',
-                background: '#000000',
-                border: '2px solid',
-                borderTopColor: '#ffffff',
-                borderLeftColor: '#ffffff',
-                borderBottomColor: '#808080',
-                borderRightColor: '#808080',
-                color: 'white',
-                padding: '4px',
-                fontSize: '0.6rem',
-                cursor: editedImage ? 'pointer' : 'not-allowed',
-                opacity: editedImage ? 1 : 0.5,
-                marginTop: '10px'
-              }}
+            )}
+
+            {mediaType === 'video' && (
+            <>
+             <div>{'>'} Frame_Rate_</div>
+             <input
+               type="range"
+               min="10"
+               max="60"
+               value={frameRate}
+               onChange={(e) => setFrameRate(parseInt(e.target.value, 10))}
+             />
+             <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{frameRate} fps</div>
+
+             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+               <input
+                 type="checkbox"
+                 checked={glitchEnabled}
+                 onChange={(e) => setGlitchEnabled(e.target.checked)}
+                 style={{
+                   width: '15px',
+                   height: '15px',
+                   cursor: 'pointer',
+                   accentColor: 'black'
+                 }}
+               />
+               <div style={{ margin: 0 }}>{'>'} Glitch_Effects_</div>
+             </div>
+
+             {glitchEnabled && (
+               <>
+                 <div>{'>'} Glitch_Effect_</div>
+                 <select
+                   value={selectedGlitchEffect}
+                   onChange={(e) => setSelectedGlitchEffect(e.target.value)}
+                 >
+                   <option value="dataMosh">Data Mosh</option>
+                   <option value="pixelSort">Pixel Sort</option>
+                   <option value="chromaticAberration">Chromatic Aberration</option>
+                   <option value="digitalCorruption">Digital Corruption</option>
+                 </select>
+
+                 <div>{'>'} Glitch_Intensity_</div>
+                 <input
+                   type="range"
+                   min="0"
+                   max="100"
+                   value={glitchIntensity * 100}
+                   onChange={(e) => setGlitchIntensity(parseInt(e.target.value, 10) / 100)}
+                 />
+               </>
+             )}
+
+             {processedFrames.length > 0 && (
+               <>
+                 <div>{'>'} Frame_Navigation_</div>
+                 <input
+                   type="range"
+                   min="0"
+                   max={processedFrames.length - 1}
+                   value={currentFrame}
+                   onChange={(e) => setCurrentFrame(parseInt(e.target.value, 10))}
+                 />
+                 <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>
+                   Frame {currentFrame + 1} / {processedFrames.length}
+                 </div>
+               </>
+             )}
+
+             <div className="file-input-container">
+               <button
+                 onClick={processVideo}
+                 disabled={!videoProcessor || isProcessingVideo}
+                 style={{
+                   width: '100%',
+                   background: '#000000',
+                   border: '2px solid',
+                   borderTopColor: '#ffffff',
+                   borderLeftColor: '#ffffff',
+                   borderBottomColor: '#808080',
+                   borderRightColor: '#808080',
+                   color: 'white',
+                   padding: '4px',
+                   fontSize: '0.6rem',
+                   cursor: videoProcessor && !isProcessingVideo ? 'pointer' : 'not-allowed',
+                   opacity: videoProcessor && !isProcessingVideo ? 1 : 0.5,
+                   marginTop: '10px'
+                 }}
+               >
+                 {isProcessingVideo ? 'Processing...' : 'Process Video'}
+               </button>
+               {isProcessingVideo && (
+                 <div style={{
+                   fontSize: '0.5rem',
+                   textAlign: 'center',
+                   marginTop: '5px',
+                   color: '#00ff00'
+                 }}>
+                   Processing frames... This may take a while.
+                 </div>
+               )}
+             </div>
+
+             {processedFrames.length > 0 && (
+               <>
+                 <div className="file-input-container">
+                   <button
+                     onClick={() => handleVideoExport('gif')}
+                     style={{
+                       width: '100%',
+                       background: '#000000',
+                       border: '2px solid',
+                       borderTopColor: '#ffffff',
+                       borderLeftColor: '#ffffff',
+                       borderBottomColor: '#808080',
+                       borderRightColor: '#808080',
+                       color: 'white',
+                       padding: '4px',
+                       fontSize: '0.6rem',
+                       cursor: 'pointer',
+                       marginTop: '5px'
+                     }}
+                   >
+                     Export as GIF
+                   </button>
+                 </div>
+
+                 <div className="file-input-container">
+                   <button
+                     onClick={() => handleVideoExport('mp4')}
+                     style={{
+                       width: '100%',
+                       background: '#000000',
+                       border: '2px solid',
+                       borderTopColor: '#ffffff',
+                       borderLeftColor: '#ffffff',
+                       borderBottomColor: '#808080',
+                       borderRightColor: '#808080',
+                       color: 'white',
+                       padding: '4px',
+                       fontSize: '0.6rem',
+                       cursor: 'pointer',
+                       marginTop: '5px'
+                     }}
+                   >
+                     Export as MP4
+                   </button>
+                 </div>
+               </>
+             )}
+            </>
+            )}
+
+            <div className="file-input-container">
+            <button
+             onClick={handleExport}
+             disabled={!editedImage || mediaType === 'video'}
+             style={{
+               width: '100%',
+               background: '#000000',
+               border: '2px solid',
+               borderTopColor: '#ffffff',
+               borderLeftColor: '#ffffff',
+               borderBottomColor: '#808080',
+               borderRightColor: '#808080',
+               color: 'white',
+               padding: '4px',
+               fontSize: '0.6rem',
+               cursor: editedImage && mediaType !== 'video' ? 'pointer' : 'not-allowed',
+               opacity: editedImage && mediaType !== 'video' ? 1 : 0.5,
+               marginTop: '10px'
+             }}
             >
-              Export Image
+             Export Image
             </button>
-          </div>
+            </div>
         </div>
       </Rnd>
       <div style={{
