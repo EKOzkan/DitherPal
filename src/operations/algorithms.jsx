@@ -893,3 +893,153 @@ export const halftoneCircles = (imageData, cellSize = 8) => {
 
   return out
 }
+
+// Glitch effects
+export const dataMosh = (imageData, options = {}) => {
+  const { intensity = 0.1, time = 0 } = options;
+  const width = imageData.width;
+  const height = imageData.height;
+  const src = imageData.data;
+  const out = new ImageData(new Uint8ClampedArray(src), width, height);
+
+  // Time-based glitch patterns
+  const glitchSeed = Math.sin(time * 0.001) * 1000;
+  
+  // Random horizontal line shifts
+  for (let y = 0; y < height; y++) {
+    if (Math.random() < intensity) {
+      const shift = Math.floor((Math.random() - 0.5) * 50 * (1 + Math.sin(glitchSeed + y * 0.1)));
+      const rowStart = y * width * 4;
+      
+      for (let x = 0; x < width; x++) {
+        const sourceX = Math.max(0, Math.min(width - 1, x + shift));
+        const sourceIdx = y * width * 4 + sourceX * 4;
+        const targetIdx = rowStart + x * 4;
+        
+        out.data[targetIdx] = src[sourceIdx];
+        out.data[targetIdx + 1] = src[sourceIdx + 1];
+        out.data[targetIdx + 2] = src[sourceIdx + 2];
+      }
+    }
+  }
+
+  return out;
+};
+
+export const pixelSort = (imageData, options = {}) => {
+  const { threshold = 128, direction = 'horizontal' } = options;
+  const width = imageData.width;
+  const height = imageData.height;
+  const src = imageData.data;
+  const out = new ImageData(new Uint8ClampedArray(src), width, height);
+
+  if (direction === 'horizontal') {
+    for (let y = 0; y < height; y++) {
+      const pixels = [];
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        const brightness = (src[idx] + src[idx + 1] + src[idx + 2]) / 3;
+        if (brightness > threshold) {
+          pixels.push([src[idx], src[idx + 1], src[idx + 2], src[idx + 3]]);
+        } else {
+          // Write sorted pixels and reset
+          pixels.sort((a, b) => (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2]));
+          let pixelIdx = 0;
+          for (let sx = 0; sx <= x; sx++) {
+            const sidx = (y * width + sx) * 4;
+            if (pixelIdx < pixels.length) {
+              out.data[sidx] = pixels[pixelIdx][0];
+              out.data[sidx + 1] = pixels[pixelIdx][1];
+              out.data[sidx + 2] = pixels[pixelIdx][2];
+              out.data[sidx + 3] = pixels[pixelIdx][3];
+              pixelIdx++;
+            } else {
+              out.data[sidx] = src[sidx];
+              out.data[sidx + 1] = src[sidx + 1];
+              out.data[sidx + 2] = src[sidx + 2];
+              out.data[sidx + 3] = src[sidx + 3];
+            }
+          }
+          pixels.length = 0;
+        }
+      }
+    }
+  }
+
+  return out;
+};
+
+export const chromaticAberration = (imageData, options = {}) => {
+  const { intensity = 5, time = 0 } = options;
+  const width = imageData.width;
+  const height = imageData.height;
+  const src = imageData.data;
+  const out = new ImageData(width, height);
+  const outData = out.data;
+
+  // Animated offset
+  const animatedOffset = intensity * (1 + Math.sin(time * 0.002) * 0.5);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      
+      // Red channel shift
+      const redX = Math.max(0, Math.min(width - 1, x - animatedOffset));
+      const redIdx = (y * width + Math.floor(redX)) * 4;
+      outData[idx] = src[redIdx];
+      
+      // Green channel (no shift)
+      outData[idx + 1] = src[idx + 1];
+      
+      // Blue channel shift
+      const blueX = Math.max(0, Math.min(width - 1, x + animatedOffset));
+      const blueIdx = (y * width + Math.floor(blueX)) * 4;
+      outData[idx + 2] = src[blueIdx];
+      
+      outData[idx + 3] = src[idx + 3];
+    }
+  }
+
+  return out;
+};
+
+export const digitalCorruption = (imageData, options = {}) => {
+  const { intensity = 0.05, time = 0 } = options;
+  const width = imageData.width;
+  const height = imageData.height;
+  const src = imageData.data;
+  const out = new ImageData(new Uint8ClampedArray(src), width, height);
+
+  // Time-based corruption patterns
+  const corruptionSeed = Math.cos(time * 0.0007) * 1000;
+
+  // Random block corruption
+  for (let block = 0; block < intensity * 20; block++) {
+    const blockSize = Math.floor(Math.random() * 20) + 5;
+    const blockX = Math.floor(Math.random() * width);
+    const blockY = Math.floor(Math.random() * height);
+    
+    for (let y = blockY; y < Math.min(blockY + blockSize, height); y++) {
+      for (let x = blockX; x < Math.min(blockX + blockSize, width); x++) {
+        const idx = (y * width + x) * 4;
+        
+        // Random color corruption
+        if (Math.random() < 0.1) {
+          out.data[idx] = Math.random() * 255;
+          out.data[idx + 1] = Math.random() * 255;
+          out.data[idx + 2] = Math.random() * 255;
+        } else {
+          // Channel swapping
+          const offset = Math.floor(Math.sin(corruptionSeed + x * 0.1 + y * 0.1) * 3);
+          out.data[idx] = src[idx + ((offset % 3) + 3) % 3];
+          out.data[idx + 1] = src[idx + ((offset + 1) % 3) + 3];
+          out.data[idx + 2] = src[idx + ((offset + 2) % 3) + 3];
+        }
+        out.data[idx + 3] = src[idx + 3];
+      }
+    }
+  }
+
+  return out;
+};
