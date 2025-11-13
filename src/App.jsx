@@ -25,6 +25,7 @@ import {
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import { VideoProcessor } from './operations/videoProcessor'
 import { ImageToVideoProcessor } from './operations/imageToVideoProcessor'
+import { TextOverlay, TEXT_ANIMATION_TYPES, FONT_FAMILIES } from './operations/textOverlay'
 
 function App() {
   const [originalImage, setOriginalImage] = useState(null)
@@ -61,6 +62,22 @@ function App() {
   const [blueValue, setBlueValue] = useState(255)
   const [singleColor, setSingleColor] = useState("#ffffff")
   const [crtEnabled, setCrtEnabled] = useState(false)
+  const [textOverlayEnabled, setTextOverlayEnabled] = useState(false)
+  const [textContent, setTextContent] = useState('Your Text Here')
+  const [textFontFamily, setTextFontFamily] = useState('Arial')
+  const [textFontSize, setTextFontSize] = useState(48)
+  const [textColor, setTextColor] = useState('#ffffff')
+  const [textStrokeColor, setTextStrokeColor] = useState('#000000')
+  const [textStrokeWidth, setTextStrokeWidth] = useState(2)
+  const [textPositionX, setTextPositionX] = useState(50)
+  const [textPositionY, setTextPositionY] = useState(50)
+  const [textPositionType, setTextPositionType] = useState('percent')
+  const [textAlignment, setTextAlignment] = useState('center')
+  const [textAnimationType, setTextAnimationType] = useState('none')
+  const [textAnimationDuration, setTextAnimationDuration] = useState(1)
+  const [textStartTime, setTextStartTime] = useState(0)
+  const [textEndTime, setTextEndTime] = useState(10)
+  const [textShadow, setTextShadow] = useState(true)
 
   const handleExport = () => {
     if (editedImage) {
@@ -87,6 +104,32 @@ function App() {
     }
   }
 
+  const configureTextOverlay = () => {
+    if (!textOverlayEnabled) {
+      return null
+    }
+    
+    const overlay = new TextOverlay()
+    overlay.addTextLayer({
+      text: textContent,
+      fontFamily: textFontFamily,
+      fontSize: textFontSize,
+      color: textColor,
+      strokeColor: textStrokeColor,
+      strokeWidth: textStrokeWidth,
+      position: { x: textPositionX, y: textPositionY },
+      positionType: textPositionType,
+      alignment: textAlignment,
+      animationType: textAnimationType,
+      animationDuration: textAnimationDuration,
+      startTime: textStartTime,
+      endTime: textEndTime,
+      shadow: textShadow
+    })
+    
+    return overlay
+  }
+
   const generateAnimatedVideoFromImage = async () => {
     if (!originalImage || isGeneratingImageVideo) return
     
@@ -97,6 +140,11 @@ function App() {
       imageToVideoProcessorRef.current = processor
       
       await processor.loadImage(originalImage)
+      
+      const textOverlay = configureTextOverlay()
+      if (textOverlay) {
+        processor.setTextOverlay(textOverlay)
+      }
       
       // Get the algorithm function based on selection
       let algorithmFunction
@@ -224,6 +272,11 @@ function App() {
     setIsProcessingVideo(true)
     
     try {
+      const textOverlay = configureTextOverlay()
+      if (textOverlay) {
+        videoProcessor.setTextOverlay(textOverlay)
+      }
+      
       // Extract frames from video
       await videoProcessor.extractFrames(frameRate)
       
@@ -1101,6 +1154,202 @@ function App() {
                 style={{ width: "100%" }}
               />
             </>
+            )}
+
+            {mediaType === 'video' && (
+              <>
+                <div style={{ 
+                  borderTop: '2px solid #808080', 
+                  margin: '10px 0', 
+                  padding: '10px 0 0 0' 
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                    <input
+                      type="checkbox"
+                      checked={textOverlayEnabled}
+                      onChange={(e) => setTextOverlayEnabled(e.target.checked)}
+                      style={{
+                        width: '15px',
+                        height: '15px',
+                        cursor: 'pointer',
+                        accentColor: 'black'
+                      }}
+                    />
+                    <div style={{ margin: 0, fontWeight: 'bold' }}>{'>'} Text_Overlay_</div>
+                  </div>
+
+                  {textOverlayEnabled && (
+                    <>
+                      <div>{'>'} Text_Content_</div>
+                      <input
+                        type="text"
+                        value={textContent}
+                        onChange={(e) => setTextContent(e.target.value)}
+                        style={{
+                          width: '100%',
+                          background: '#000',
+                          color: '#fff',
+                          border: '1px solid #808080',
+                          padding: '4px',
+                          fontSize: '0.6rem',
+                          marginBottom: '5px'
+                        }}
+                      />
+
+                      <div>{'>'} Font_Family_</div>
+                      <select
+                        value={textFontFamily}
+                        onChange={(e) => setTextFontFamily(e.target.value)}
+                      >
+                        {FONT_FAMILIES.map(font => (
+                          <option key={font} value={font}>{font}</option>
+                        ))}
+                      </select>
+
+                      <div>{'>'} Font_Size_</div>
+                      <input
+                        type="range"
+                        min="12"
+                        max="200"
+                        value={textFontSize}
+                        onChange={(e) => setTextFontSize(parseInt(e.target.value, 10))}
+                      />
+                      <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{textFontSize}px</div>
+
+                      <div>{'>'} Text_Color_</div>
+                      <input
+                        type="color"
+                        value={textColor}
+                        onChange={(e) => setTextColor(e.target.value)}
+                        style={{ width: "100%", marginBottom: '5px' }}
+                      />
+
+                      <div>{'>'} Stroke_Color_</div>
+                      <input
+                        type="color"
+                        value={textStrokeColor}
+                        onChange={(e) => setTextStrokeColor(e.target.value)}
+                        style={{ width: "100%", marginBottom: '5px' }}
+                      />
+
+                      <div>{'>'} Stroke_Width_</div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="10"
+                        value={textStrokeWidth}
+                        onChange={(e) => setTextStrokeWidth(parseInt(e.target.value, 10))}
+                      />
+                      <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{textStrokeWidth}px</div>
+
+                      <div>{'>'} Position_Type_</div>
+                      <select
+                        value={textPositionType}
+                        onChange={(e) => setTextPositionType(e.target.value)}
+                      >
+                        <option value="percent">Percentage</option>
+                        <option value="pixels">Pixels</option>
+                      </select>
+
+                      <div>{'>'} Position_X_</div>
+                      <input
+                        type="range"
+                        min="0"
+                        max={textPositionType === 'percent' ? 100 : 1920}
+                        value={textPositionX}
+                        onChange={(e) => setTextPositionX(parseInt(e.target.value, 10))}
+                      />
+                      <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>
+                        {textPositionX}{textPositionType === 'percent' ? '%' : 'px'}
+                      </div>
+
+                      <div>{'>'} Position_Y_</div>
+                      <input
+                        type="range"
+                        min="0"
+                        max={textPositionType === 'percent' ? 100 : 1080}
+                        value={textPositionY}
+                        onChange={(e) => setTextPositionY(parseInt(e.target.value, 10))}
+                      />
+                      <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>
+                        {textPositionY}{textPositionType === 'percent' ? '%' : 'px'}
+                      </div>
+
+                      <div>{'>'} Text_Alignment_</div>
+                      <select
+                        value={textAlignment}
+                        onChange={(e) => setTextAlignment(e.target.value)}
+                      >
+                        <option value="left">Left</option>
+                        <option value="center">Center</option>
+                        <option value="right">Right</option>
+                      </select>
+
+                      <div>{'>'} Animation_Type_</div>
+                      <select
+                        value={textAnimationType}
+                        onChange={(e) => setTextAnimationType(e.target.value)}
+                      >
+                        {TEXT_ANIMATION_TYPES.map(anim => (
+                          <option key={anim.value} value={anim.value}>{anim.label}</option>
+                        ))}
+                      </select>
+
+                      {textAnimationType !== 'none' && (
+                        <>
+                          <div>{'>'} Animation_Duration_(s)_</div>
+                          <input
+                            type="range"
+                            min="0.1"
+                            max="5"
+                            step="0.1"
+                            value={textAnimationDuration}
+                            onChange={(e) => setTextAnimationDuration(parseFloat(e.target.value))}
+                          />
+                          <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{textAnimationDuration}s</div>
+
+                          <div>{'>'} Start_Time_(s)_</div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="30"
+                            step="0.5"
+                            value={textStartTime}
+                            onChange={(e) => setTextStartTime(parseFloat(e.target.value))}
+                          />
+                          <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{textStartTime}s</div>
+
+                          <div>{'>'} End_Time_(s)_</div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="30"
+                            step="0.5"
+                            value={textEndTime}
+                            onChange={(e) => setTextEndTime(parseFloat(e.target.value))}
+                          />
+                          <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{textEndTime}s</div>
+                        </>
+                      )}
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px' }}>
+                        <input
+                          type="checkbox"
+                          checked={textShadow}
+                          onChange={(e) => setTextShadow(e.target.checked)}
+                          style={{
+                            width: '15px',
+                            height: '15px',
+                            cursor: 'pointer',
+                            accentColor: 'black'
+                          }}
+                        />
+                        <div style={{ margin: 0 }}>{'>'} Text_Shadow_</div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>
             )}
 
             {mediaType === 'video' && (
