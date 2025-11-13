@@ -817,6 +817,24 @@ export const asciiArt = (imageData) => {
   return output
 }
 
+// Grain effect - adds film-like noise texture
+export const grain = (imageData, intensity = 0.1) => {
+  const data = imageData.data;
+  
+  for (let i = 0; i < data.length; i += 4) {
+    // Generate random noise for each channel
+    const noise = (Math.random() - 0.5) * 2 * intensity * 255;
+    
+    // Apply noise to RGB channels
+    data[i] = Math.max(0, Math.min(255, data[i] + noise));     // Red
+    data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise)); // Green
+    data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise)); // Blue
+    // Alpha channel remains unchanged
+  }
+  
+  return imageData;
+};
+
 // Halftone using circular dots per cell
 export const halftoneCircles = (imageData, cellSize = 8) => {
   const width = imageData.width

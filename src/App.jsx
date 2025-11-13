@@ -19,7 +19,8 @@ import {
   bitTone,
   crossPlus,
   asciiArt,
-  halftoneCircles
+  halftoneCircles,
+  grain
 } from './operations/algorithms'
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 
@@ -148,6 +149,9 @@ function App() {
             break
           case "halftoneCircles":
             ditheredData = halftoneCircles(processedData)
+            break
+          case "grain":
+            ditheredData = grain(processedData)
             break
           default:
             ditheredData = processedData
@@ -531,6 +535,7 @@ function App() {
             <option value="bitTone">Bit Tone</option>
             <option value="crossPlus">Cross Plus</option>
             <option value="asciiArt">ASCII Art</option>
+            <option value="grain">Grain</option>
           </select>
           <div>{'>'} Bloom_</div>
           <input
