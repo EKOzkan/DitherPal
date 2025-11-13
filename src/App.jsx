@@ -24,6 +24,7 @@ import {
 } from './operations/algorithms'
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import { VideoProcessor } from './operations/videoProcessor'
+import { ImageToVideoProcessor } from './operations/imageToVideoProcessor'
 
 function App() {
   const [originalImage, setOriginalImage] = useState(null)
@@ -38,6 +39,14 @@ function App() {
   const [glitchIntensity, setGlitchIntensity] = useState(0.1)
   const [selectedGlitchEffect, setSelectedGlitchEffect] = useState('dataMosh')
   const videoProcessorRef = useRef(null)
+  const imageToVideoProcessorRef = useRef(null)
+  const [videoSource, setVideoSource] = useState('upload')
+  const [isGeneratingImageVideo, setIsGeneratingImageVideo] = useState(false)
+  const [imageAnimationDuration, setImageAnimationDuration] = useState(3)
+  const [imageAnimationFrameRate, setImageAnimationFrameRate] = useState(30)
+  const [imageAnimationType, setImageAnimationType] = useState('threshold-wave')
+  const [imageAnimationCycles, setImageAnimationCycles] = useState(1)
+  const [imageAnimationIntensity, setImageAnimationIntensity] = useState(0.5)
   const [size, SetSize] = useState(10)
   const [contrast, setContrast] = useState(128)
   const [midtones, setMidtones] = useState(128)
@@ -68,6 +77,7 @@ function App() {
       videoProcessorRef.current = processor
       await processor.loadVideo(file)
       setVideoProcessor(processor)
+      setVideoSource('upload')
       setMediaType('video')
       setOriginalImage(null)
       setEditedImage(null)
@@ -77,8 +87,139 @@ function App() {
     }
   }
 
+  const generateAnimatedVideoFromImage = async () => {
+    if (!originalImage || isGeneratingImageVideo) return
+    
+    setIsGeneratingImageVideo(true)
+    
+    try {
+      const processor = new ImageToVideoProcessor()
+      imageToVideoProcessorRef.current = processor
+      
+      await processor.loadImage(originalImage)
+      
+      // Get the algorithm function based on selection
+      let algorithmFunction
+      switch(algorithm) {
+        case "none":
+          algorithmFunction = (data) => data
+          break
+        case "floydSteinberg":
+          algorithmFunction = floydSteinberg
+          break
+        case "floydSteinbergSerpentine":
+          algorithmFunction = floydSteinbergSerpentine
+          break
+        case "falseFloydSteinberg":
+          algorithmFunction = falseFloydSteinberg
+          break
+        case "jarvisJudiceNinke":
+          algorithmFunction = jarvisJudiceNinke
+          break
+        case "atkinson":
+          algorithmFunction = atkinson
+          break
+        case "stucki":
+          algorithmFunction = stucki
+          break
+        case "burkes":
+          algorithmFunction = burkes
+          break
+        case "sierra":
+          algorithmFunction = sierra
+          break
+        case "twoRowSierra":
+          algorithmFunction = twoRowSierra
+          break
+        case "sierraLite":
+          algorithmFunction = sierraLite
+          break
+        case "bayerOrdered":
+          algorithmFunction = bayerOrdered
+          break
+        case "bayerOrdered4x4":
+          algorithmFunction = bayerOrdered4x4
+          break
+        case "bayerOrdered16x16":
+          algorithmFunction = bayerOrdered16x16
+          break
+        case "randomOrdered":
+          algorithmFunction = randomOrdered
+          break
+        case "bitTone":
+          algorithmFunction = bitTone
+          break
+        case "crossPlus":
+          algorithmFunction = crossPlus
+          break
+        case "asciiArt":
+          algorithmFunction = asciiArt
+          break
+        case "halftoneCircles":
+          algorithmFunction = halftoneCircles
+          break
+        case "grain":
+          algorithmFunction = grain
+          break
+        default:
+          algorithmFunction = (data) => data
+      }
+
+      // Generate animated frames with parameter animation
+      const processed = await processor.generateAnimatedFrames(algorithmFunction, {
+        size,
+        contrast,
+        midtones,
+        highlights,
+        threshold,
+        luminanceThresholdEnabled,
+        bloom,
+        colorMode,
+        redValue,
+        greenValue,
+        blueValue,
+        singleColor,
+        crtEnabled,
+        glitchEnabled,
+        glitchIntensity,
+        selectedGlitchEffect
+      }, {
+        duration: imageAnimationDuration,
+        frameRate: imageAnimationFrameRate,
+        animationType: imageAnimationType,
+        animationParams: {
+          cycles: imageAnimationCycles,
+          intensity: imageAnimationIntensity,
+          maxBloom: 150
+        }
+      })
+
+      setProcessedFrames(processed)
+      setVideoProcessor(processor)
+      setFrameRate(imageAnimationFrameRate)
+      videoProcessorRef.current = processor
+      setVideoSource('image')
+      setMediaType('video')
+      
+      // Show first frame
+      if (processed.length > 0) {
+        const firstFramePreview = processor.getFramePreview(0)
+        setEditedImage(firstFramePreview)
+        setCurrentFrame(0)
+      }
+      
+    } catch (error) {
+      console.error('Error generating animated video:', error)
+      alert('Error generating animated video. Please try again.')
+      setVideoSource('upload')
+      setMediaType('image')
+    } finally {
+      setIsGeneratingImageVideo(false)
+    }
+  }
+
   const processVideo = async () => {
-    if (!videoProcessor || isProcessingVideo) return
+    if (!videoProcessor || isProcessingVideo || videoSource === 'image') return
     
     setIsProcessingVideo(true)
     
@@ -220,9 +361,14 @@ function App() {
       videoProcessorRef.current.cleanup()
       videoProcessorRef.current = null
     }
+    if (imageToVideoProcessorRef.current) {
+      imageToVideoProcessorRef.current.cleanup()
+      imageToVideoProcessorRef.current = null
+    }
     setVideoProcessor(null)
     setProcessedFrames([])
     setCurrentFrame(0)
+    setVideoSource('upload')
   }
 
   useEffect(() => {
@@ -650,24 +796,130 @@ function App() {
           </div>
 
           {mediaType === 'image' ? (
-            <div className="file-input-container">
-              <input
-                type="file"
-                id="file"
-                accept="image/*"
-                onChange={(e) => {
-                  const file = e.target.files[0]
-                  const reader = new FileReader()
-                  reader.onloadend = () => {
-                    setOriginalImage(reader.result)
-                  }
-                  reader.readAsDataURL(file)
-                }}
-              />
-              <label htmlFor="file" className="file-input-label">
-                Choose Image
-              </label>
-            </div>
+            <>
+              <div className="file-input-container">
+                <input
+                  type="file"
+                  id="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files[0]
+                    const reader = new FileReader()
+                    reader.onloadend = () => {
+                      setOriginalImage(reader.result)
+                    }
+                    reader.readAsDataURL(file)
+                  }}
+                />
+                <label htmlFor="file" className="file-input-label">
+                  Choose Image
+                </label>
+              </div>
+
+              {originalImage && (
+                <>
+                  <div style={{ 
+                    borderTop: '2px solid #808080', 
+                    margin: '10px 0', 
+                    padding: '10px 0 0 0' 
+                  }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: '10px' }}>
+                      {'>'} Image_to_Video_Animation_
+                    </div>
+                    
+                    <div>{'>'} Animation_Type_</div>
+                    <select
+                      value={imageAnimationType}
+                      onChange={(e) => setImageAnimationType(e.target.value)}
+                    >
+                      <option value="threshold-wave">Threshold Wave</option>
+                      <option value="threshold-sweep">Threshold Sweep</option>
+                      <option value="contrast-pulse">Contrast Pulse</option>
+                      <option value="color-cycle">Color Cycle</option>
+                      <option value="bloom-pulse">Bloom Pulse</option>
+                      <option value="rgb-split">RGB Split</option>
+                      <option value="glitch-wave">Glitch Wave</option>
+                      <option value="all-params">All Parameters</option>
+                    </select>
+
+                    <div>{'>'} Duration_(seconds)_</div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="10"
+                      step="0.5"
+                      value={imageAnimationDuration}
+                      onChange={(e) => setImageAnimationDuration(parseFloat(e.target.value))}
+                    />
+                    <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{imageAnimationDuration}s</div>
+
+                    <div>{'>'} Frame_Rate_</div>
+                    <input
+                      type="range"
+                      min="10"
+                      max="60"
+                      value={imageAnimationFrameRate}
+                      onChange={(e) => setImageAnimationFrameRate(parseInt(e.target.value, 10))}
+                    />
+                    <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{imageAnimationFrameRate} fps</div>
+
+                    <div>{'>'} Animation_Cycles_</div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="10"
+                      value={imageAnimationCycles}
+                      onChange={(e) => setImageAnimationCycles(parseInt(e.target.value, 10))}
+                    />
+                    <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{imageAnimationCycles}</div>
+
+                    <div>{'>'} Animation_Intensity_</div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={Math.round(imageAnimationIntensity * 100)}
+                      onChange={(e) => setImageAnimationIntensity(parseInt(e.target.value, 10) / 100)}
+                    />
+                    <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{Math.round(imageAnimationIntensity * 100)}%</div>
+
+                    <div className="file-input-container">
+                      <button
+                        onClick={generateAnimatedVideoFromImage}
+                        disabled={!originalImage || isGeneratingImageVideo}
+                        style={{
+                          width: '100%',
+                          background: '#000000',
+                          border: '2px solid',
+                          borderTopColor: '#ffffff',
+                          borderLeftColor: '#ffffff',
+                          borderBottomColor: '#808080',
+                          borderRightColor: '#808080',
+                          color: 'white',
+                          padding: '4px',
+                          fontSize: '0.6rem',
+                          cursor: originalImage && !isGeneratingImageVideo ? 'pointer' : 'not-allowed',
+                          opacity: originalImage && !isGeneratingImageVideo ? 1 : 0.5,
+                          marginTop: '10px'
+                        }}
+                      >
+                        {isGeneratingImageVideo ? 'Generating...' : 'Generate Animated Video'}
+                      </button>
+                      {isGeneratingImageVideo && (
+                        <div style={{
+                          fontSize: '0.5rem',
+                          textAlign: 'center',
+                          marginTop: '5px',
+                          color: '#00ff00'
+                        }}>
+                          Generating frames... This may take a while.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
           ) : (
             <div className="file-input-container">
               <input
@@ -853,6 +1105,19 @@ function App() {
 
             {mediaType === 'video' && (
             <>
+             {videoSource === 'image' && (
+               <div style={{
+                 padding: '8px',
+                 background: '#404040',
+                 border: '2px solid #00ff00',
+                 marginBottom: '10px',
+                 fontSize: '0.6rem',
+                 textAlign: 'center'
+               }}>
+                 Video generated from image
+               </div>
+             )}
+
              <div>{'>'} Frame_Rate_</div>
              <input
                type="range"
@@ -860,6 +1125,7 @@ function App() {
                max="60"
                value={frameRate}
                onChange={(e) => setFrameRate(parseInt(e.target.value, 10))}
+               disabled={videoSource === 'image'}
              />
              <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{frameRate} fps</div>
 
@@ -868,10 +1134,11 @@ function App() {
                  type="checkbox"
                  checked={glitchEnabled}
                  onChange={(e) => setGlitchEnabled(e.target.checked)}
+                 disabled={videoSource === 'image'}
                  style={{
                    width: '15px',
                    height: '15px',
-                   cursor: 'pointer',
+                   cursor: videoSource === 'image' ? 'not-allowed' : 'pointer',
                    accentColor: 'black'
                  }}
                />
@@ -884,6 +1151,7 @@ function App() {
                  <select
                    value={selectedGlitchEffect}
                    onChange={(e) => setSelectedGlitchEffect(e.target.value)}
+                   disabled={videoSource === 'image'}
                  >
                    <option value="dataMosh">Data Mosh</option>
                    <option value="pixelSort">Pixel Sort</option>
@@ -898,6 +1166,7 @@ function App() {
                    max="100"
                    value={glitchIntensity * 100}
                    onChange={(e) => setGlitchIntensity(parseInt(e.target.value, 10) / 100)}
+                   disabled={videoSource === 'image'}
                  />
                </>
              )}
@@ -918,39 +1187,41 @@ function App() {
                </>
              )}
 
-             <div className="file-input-container">
-               <button
-                 onClick={processVideo}
-                 disabled={!videoProcessor || isProcessingVideo}
-                 style={{
-                   width: '100%',
-                   background: '#000000',
-                   border: '2px solid',
-                   borderTopColor: '#ffffff',
-                   borderLeftColor: '#ffffff',
-                   borderBottomColor: '#808080',
-                   borderRightColor: '#808080',
-                   color: 'white',
-                   padding: '4px',
-                   fontSize: '0.6rem',
-                   cursor: videoProcessor && !isProcessingVideo ? 'pointer' : 'not-allowed',
-                   opacity: videoProcessor && !isProcessingVideo ? 1 : 0.5,
-                   marginTop: '10px'
-                 }}
-               >
-                 {isProcessingVideo ? 'Processing...' : 'Process Video'}
-               </button>
-               {isProcessingVideo && (
-                 <div style={{
-                   fontSize: '0.5rem',
-                   textAlign: 'center',
-                   marginTop: '5px',
-                   color: '#00ff00'
-                 }}>
-                   Processing frames... This may take a while.
-                 </div>
-               )}
-             </div>
+             {videoSource === 'upload' && (
+               <div className="file-input-container">
+                 <button
+                   onClick={processVideo}
+                   disabled={!videoProcessor || isProcessingVideo}
+                   style={{
+                     width: '100%',
+                     background: '#000000',
+                     border: '2px solid',
+                     borderTopColor: '#ffffff',
+                     borderLeftColor: '#ffffff',
+                     borderBottomColor: '#808080',
+                     borderRightColor: '#808080',
+                     color: 'white',
+                     padding: '4px',
+                     fontSize: '0.6rem',
+                     cursor: videoProcessor && !isProcessingVideo ? 'pointer' : 'not-allowed',
+                     opacity: videoProcessor && !isProcessingVideo ? 1 : 0.5,
+                     marginTop: '10px'
+                   }}
+                 >
+                   {isProcessingVideo ? 'Processing...' : 'Process Video'}
+                 </button>
+                 {isProcessingVideo && (
+                   <div style={{
+                     fontSize: '0.5rem',
+                     textAlign: 'center',
+                     marginTop: '5px',
+                     color: '#00ff00'
+                   }}>
+                     Processing frames... This may take a while.
+                   </div>
+                 )}
+               </div>
+             )}
 
              {processedFrames.length > 0 && (
                <>
