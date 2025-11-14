@@ -5,24 +5,24 @@ export class TextOverlay {
 
   addTextLayer(config) {
     const defaultConfig = {
-      text: '',
-      fontFamily: 'Arial',
-      fontSize: 48,
+      text: 'YOUR TEXT HERE',
+      fontFamily: 'Impact',
+      fontSize: 72,
       color: '#ffffff',
       strokeColor: '#000000',
-      strokeWidth: 2,
+      strokeWidth: 4,
       position: { x: 50, y: 50 },
-      positionType: 'pixels',
-      alignment: 'left',
+      positionType: 'percent',
+      alignment: 'center',
       animationType: 'none',
       animationDuration: 1,
       startTime: 0,
       endTime: Infinity,
-      shadow: false,
-      shadowColor: 'rgba(0,0,0,0.5)',
-      shadowBlur: 4,
-      shadowOffsetX: 2,
-      shadowOffsetY: 2,
+      shadow: true,
+      shadowColor: 'rgba(0,0,0,0.8)',
+      shadowBlur: 8,
+      shadowOffsetX: 4,
+      shadowOffsetY: 4,
     }
     
     this.textLayers.push({ ...defaultConfig, ...config })
@@ -53,7 +53,7 @@ export class TextOverlay {
     
     ctx.putImageData(imageData, 0, 0)
     
-    this.textLayers.forEach(layer => {
+    this.textLayers.forEach((layer) => {
       if (currentTime >= layer.startTime && currentTime <= layer.endTime) {
         this.drawTextLayer(ctx, layer, currentTime, frameNumber, totalFrames, canvas.width, canvas.height)
       }
@@ -102,18 +102,26 @@ export class TextOverlay {
     
     const text = this.getVisibleText(layer, animationProgress)
     
-    if (layer.strokeWidth > 0) {
-      ctx.strokeStyle = layer.strokeColor
-      ctx.lineWidth = layer.strokeWidth
-      ctx.lineJoin = 'round'
-      ctx.strokeText(text, 0, 0)
+    // Don't draw if text is empty
+    if (!text) {
+      ctx.restore()
+      return
     }
     
-    ctx.fillStyle = layer.color
-    ctx.fillText(text, 0, 0)
-    
+    // For wave animation, use special drawing
     if (layer.animationType === 'wave') {
       this.drawWaveText(ctx, layer, text, animationProgress)
+    } else {
+      // Regular text drawing
+      if (layer.strokeWidth > 0) {
+        ctx.strokeStyle = layer.strokeColor
+        ctx.lineWidth = layer.strokeWidth
+        ctx.lineJoin = 'round'
+        ctx.strokeText(text, 0, 0)
+      }
+      
+      ctx.fillStyle = layer.color
+      ctx.fillText(text, 0, 0)
     }
     
     ctx.restore()

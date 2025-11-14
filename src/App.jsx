@@ -63,12 +63,12 @@ function App() {
   const [singleColor, setSingleColor] = useState("#ffffff")
   const [crtEnabled, setCrtEnabled] = useState(false)
   const [textOverlayEnabled, setTextOverlayEnabled] = useState(false)
-  const [textContent, setTextContent] = useState('Your Text Here')
-  const [textFontFamily, setTextFontFamily] = useState('Arial')
-  const [textFontSize, setTextFontSize] = useState(48)
+  const [textContent, setTextContent] = useState('YOUR TEXT HERE')
+  const [textFontFamily, setTextFontFamily] = useState('Impact')
+  const [textFontSize, setTextFontSize] = useState(72)
   const [textColor, setTextColor] = useState('#ffffff')
   const [textStrokeColor, setTextStrokeColor] = useState('#000000')
-  const [textStrokeWidth, setTextStrokeWidth] = useState(2)
+  const [textStrokeWidth, setTextStrokeWidth] = useState(4)
   const [textPositionX, setTextPositionX] = useState(50)
   const [textPositionY, setTextPositionY] = useState(50)
   const [textPositionType, setTextPositionType] = useState('percent')
@@ -598,13 +598,23 @@ function App() {
           applyCRTEffect(finalCtx, finalCanvas.width, finalCanvas.height)
         }
         
+        // Apply text overlay if enabled (for image mode)
+        if (textOverlayEnabled) {
+          const finalImageData = finalCtx.getImageData(0, 0, finalCanvas.width, finalCanvas.height)
+          const textOverlay = configureTextOverlay()
+          if (textOverlay) {
+            const withText = textOverlay.applyTextOverlay(finalImageData, 0, 0, 1)
+            finalCtx.putImageData(withText, 0, 0)
+          }
+        }
+        
         // Convert to data URL and update state
         setEditedImage(finalCanvas.toDataURL())
       }
       image.src = originalImage
     }
     console.log("effect applied with algorithm:", algorithm)
-  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled, textOverlayEnabled, textContent, textFontFamily, textFontSize, textColor, textStrokeColor, textStrokeWidth, textPositionX, textPositionY, textPositionType, textAlignment, textAnimationType, textAnimationDuration, textStartTime, textEndTime, textShadow]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update frame preview when current frame changes
   useEffect(() => {
@@ -1156,27 +1166,26 @@ function App() {
             </>
             )}
 
-            {mediaType === 'video' && (
-              <>
-                <div style={{ 
-                  borderTop: '2px solid #808080', 
-                  margin: '10px 0', 
-                  padding: '10px 0 0 0' 
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                    <input
-                      type="checkbox"
-                      checked={textOverlayEnabled}
-                      onChange={(e) => setTextOverlayEnabled(e.target.checked)}
-                      style={{
-                        width: '15px',
-                        height: '15px',
-                        cursor: 'pointer',
-                        accentColor: 'black'
-                      }}
-                    />
-                    <div style={{ margin: 0, fontWeight: 'bold' }}>{'>'} Text_Overlay_</div>
-                  </div>
+            {/* Text Overlay Section - Available in both image and video modes */}
+            <div style={{ 
+              borderTop: '2px solid #808080', 
+              margin: '10px 0', 
+              padding: '10px 0 0 0' 
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <input
+                  type="checkbox"
+                  checked={textOverlayEnabled}
+                  onChange={(e) => setTextOverlayEnabled(e.target.checked)}
+                  style={{
+                    width: '15px',
+                    height: '15px',
+                    cursor: 'pointer',
+                    accentColor: 'black'
+                  }}
+                />
+                <div style={{ margin: 0, fontWeight: 'bold' }}>{'>'} Text_Overlay_</div>
+              </div>
 
                   {textOverlayEnabled && (
                     <>
@@ -1348,9 +1357,7 @@ function App() {
                       </div>
                     </>
                   )}
-                </div>
-              </>
-            )}
+            </div>
 
             {mediaType === 'video' && (
             <>
