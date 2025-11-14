@@ -140,6 +140,18 @@ input[type="color"] {
   height: 22px;
 }
 
+input[type="text"] {
+  background: #000000;
+  border: 2px solid;
+  border-top-color: #808080;
+  border-left-color: #808080;
+  border-bottom-color: #ffffff;
+  border-right-color: #ffffff;
+  color: white;
+  padding: 4px;
+  font-size: 0.6rem;
+}
+
 div {
   color: white;
   margin-top: 6px;

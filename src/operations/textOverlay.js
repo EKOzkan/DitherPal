@@ -102,18 +102,18 @@ export class TextOverlay {
     
     const text = this.getVisibleText(layer, animationProgress)
     
-    if (layer.strokeWidth > 0) {
-      ctx.strokeStyle = layer.strokeColor
-      ctx.lineWidth = layer.strokeWidth
-      ctx.lineJoin = 'round'
-      ctx.strokeText(text, 0, 0)
-    }
-    
-    ctx.fillStyle = layer.color
-    ctx.fillText(text, 0, 0)
-    
     if (layer.animationType === 'wave') {
       this.drawWaveText(ctx, layer, text, animationProgress)
+    } else {
+      if (layer.strokeWidth > 0) {
+        ctx.strokeStyle = layer.strokeColor
+        ctx.lineWidth = layer.strokeWidth
+        ctx.lineJoin = 'round'
+        ctx.strokeText(text, 0, 0)
+      }
+      
+      ctx.fillStyle = layer.color
+      ctx.fillText(text, 0, 0)
     }
     
     ctx.restore()
