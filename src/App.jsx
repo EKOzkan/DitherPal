@@ -26,6 +26,7 @@ import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import { VideoProcessor } from './operations/videoProcessor'
 import { ImageToVideoProcessor } from './operations/imageToVideoProcessor'
 import { TextOverlay, TEXT_ANIMATION_TYPES, FONT_FAMILIES } from './operations/textOverlay'
+import TextOverlayPreview from './components/TextOverlayPreview'
 
 function App() {
   const [originalImage, setOriginalImage] = useState(null)
@@ -78,6 +79,43 @@ function App() {
   const [textStartTime, setTextStartTime] = useState(0)
   const [textEndTime, setTextEndTime] = useState(10)
   const [textShadow, setTextShadow] = useState(true)
+
+  // Create a text overlay object for the preview
+  const textOverlayConfig = {
+    enabled: textOverlayEnabled,
+    text: textContent,
+    fontFamily: textFontFamily,
+    fontSize: textFontSize,
+    color: textColor,
+    strokeColor: textStrokeColor,
+    strokeWidth: textStrokeWidth,
+    x: textPositionX,
+    y: textPositionY,
+    align: textAlignment,
+    animationType: textAnimationType,
+    animationDuration: textAnimationDuration,
+    startTime: textStartTime,
+    endTime: textEndTime,
+    shadow: textShadow
+  }
+
+  const handleTextOverlayChange = (newConfig) => {
+    setTextOverlayEnabled(newConfig.enabled)
+    setTextContent(newConfig.text || '')
+    setTextFontFamily(newConfig.fontFamily || 'Arial')
+    setTextFontSize(newConfig.fontSize || 48)
+    setTextColor(newConfig.color || '#ffffff')
+    setTextStrokeColor(newConfig.strokeColor || '#000000')
+    setTextStrokeWidth(newConfig.strokeWidth || 2)
+    setTextPositionX(newConfig.x || 50)
+    setTextPositionY(newConfig.y || 50)
+    setTextAlignment(newConfig.align || 'center')
+    setTextAnimationType(newConfig.animationType || 'none')
+    setTextAnimationDuration(newConfig.animationDuration || 1)
+    setTextStartTime(newConfig.startTime || 0)
+    setTextEndTime(newConfig.endTime || 10)
+    setTextShadow(newConfig.shadow !== undefined ? newConfig.shadow : true)
+  }
 
   const handleExport = () => {
     if (editedImage) {
@@ -1567,7 +1605,7 @@ function App() {
         justifyContent: 'center',
         alignItems: 'center'
       }}>
-        {editedImage &&
+        {(editedImage || (processedFrames.length > 0 && processedFrames[currentFrame])) &&
           <TransformWrapper
             minScale={0.1}
             maxScale={7}
@@ -1583,19 +1621,28 @@ function App() {
                 minHeight: "200px"
               }}
             >
-              <img 
-                src={editedImage} 
-                style={{
-                  minWidth: "100px",
-                  minHeight: "100px",
-                  objectFit: "contain",
-                  border: '2px dotted',
-                  imageRendering: 'pixelated',  // Add crisp rendering for browsers
-                  WebkitImageRendering: 'pixelated',
-                  msImageRendering: 'pixelated',
-                }} 
-                alt="Edited" 
-              />
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <img 
+                  src={processedFrames.length > 0 ? processedFrames[currentFrame] : editedImage} 
+                  style={{
+                    minWidth: "100px",
+                    minHeight: "100px",
+                    objectFit: "contain",
+                    border: '2px dotted',
+                    imageRendering: 'pixelated',  // Add crisp rendering for browsers
+                    WebkitImageRendering: 'pixelated',
+                    msImageRendering: 'pixelated',
+                  }} 
+                  alt="Edited" 
+                />
+                <TextOverlayPreview
+                  textOverlay={textOverlayConfig}
+                  onTextOverlayChange={handleTextOverlayChange}
+                  videoMode={mediaType === 'video'}
+                  imageToVideoMode={videoSource === 'image'}
+                  processedCanvas={null}
+                />
+              </div>
             </TransformComponent>
           </TransformWrapper>
         }
