@@ -83,6 +83,11 @@ function App() {
   const [textStartTime, setTextStartTime] = useState(0)
   const [textEndTime, setTextEndTime] = useState(10)
   const [textShadow, setTextShadow] = useState(true)
+  const [hue, setHue] = useState(0)
+  const [vibrance, setVibrance] = useState(0)
+  const [saturation, setSaturation] = useState(100)
+  const [manualRenderEnabled, setManualRenderEnabled] = useState(false)
+  const [renderTrigger, setRenderTrigger] = useState(0)
 
   const handleExport = () => {
     if (editedImage) {
@@ -238,7 +243,10 @@ function App() {
         selectedGlitchEffect,
         rgbModeEnabled,
         selectedPalette,
-        customPaletteColors
+        customPaletteColors,
+        hue,
+        vibrance,
+        saturation
       }, {
         duration: imageAnimationDuration,
         frameRate: imageAnimationFrameRate,
@@ -375,7 +383,10 @@ function App() {
         crtEnabled,
         rgbModeEnabled,
         selectedPalette,
-        customPaletteColors
+        customPaletteColors,
+        hue,
+        vibrance,
+        saturation
       })
 
       setProcessedFrames(processed)
@@ -434,6 +445,10 @@ function App() {
     setCurrentFrame(0)
     setVideoSource('upload')
   }
+
+  const customPaletteRenderKey = manualRenderEnabled && rgbModeEnabled && selectedPalette === 'custom'
+    ? `manual:${renderTrigger}`
+    : `auto:${customPaletteColors.join('|')}:${renderTrigger}`
 
   useEffect(() => {
     if (originalImage) {
@@ -589,6 +604,16 @@ function App() {
 
         ditheredData = coloredData
 
+        // Apply HSV adjustments (hue, vibrance, saturation) if any are non-default
+        if (hue !== 0 || vibrance !== 0 || saturation !== 100) {
+          ditheredData = new ImageData(
+            new Uint8ClampedArray(ditheredData.data),
+            ditheredData.width,
+            ditheredData.height
+          )
+          ditheredData = applyHSVAdjustments(ditheredData, hue, vibrance, saturation)
+        }
+
         // Apply bloom as post-processing if enabled
         if (bloom > 0) {
           ditheredData = applyBloom(ditheredData, bloom)
@@ -636,7 +661,7 @@ function App() {
       image.src = originalImage
     }
     console.log("effect applied with algorithm:", algorithm)
-  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled, rgbModeEnabled, selectedPalette, customPaletteColors, textOverlayEnabled, textContent, textFontFamily, textFontSize, textColor, textStrokeColor, textStrokeWidth, textPositionX, textPositionY, textPositionType, textAlignment, textAnimationType, textAnimationDuration, textStartTime, textEndTime, textShadow]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled, rgbModeEnabled, selectedPalette, customPaletteRenderKey, textOverlayEnabled, textContent, textFontFamily, textFontSize, textColor, textStrokeColor, textStrokeWidth, textPositionX, textPositionY, textPositionType, textAlignment, textAnimationType, textAnimationDuration, textStartTime, textEndTime, textShadow, hue, vibrance, saturation]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update frame preview when current frame changes
   useEffect(() => {
@@ -693,6 +718,99 @@ function App() {
 
   function clamp(value) {
     return Math.max(0, Math.min(255, value))
+  }
+
+  function rgbToHsv(r, g, b) {
+    r /= 255
+    g /= 255
+    b /= 255
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const delta = max - min
+    
+    let h = 0
+    let s = 0
+    const v = max
+    
+    if (delta !== 0) {
+      s = delta / max
+      if (r === max) {
+        h = ((g - b) / delta) % 6
+      } else if (g === max) {
+        h = (b - r) / delta + 2
+      } else {
+        h = (r - g) / delta + 4
+      }
+      h = Math.round(h * 60)
+      if (h < 0) h += 360
+    }
+    
+    return [h, s, v]
+  }
+
+  function hsvToRgb(h, s, v) {
+    const c = v * s
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+    const m = v - c
+    
+    let r = 0, g = 0, b = 0
+    
+    if (h >= 0 && h < 60) {
+      r = c; g = x; b = 0
+    } else if (h >= 60 && h < 120) {
+      r = x; g = c; b = 0
+    } else if (h >= 120 && h < 180) {
+      r = 0; g = c; b = x
+    } else if (h >= 180 && h < 240) {
+      r = 0; g = x; b = c
+    } else if (h >= 240 && h < 300) {
+      r = x; g = 0; b = c
+    } else if (h >= 300 && h < 360) {
+      r = c; g = 0; b = x
+    }
+    
+    return [
+      Math.round((r + m) * 255),
+      Math.round((g + m) * 255),
+      Math.round((b + m) * 255)
+    ]
+  }
+
+  function applyHSVAdjustments(imageData, hueShift, vibranceAdjust, saturationPercent) {
+    const data = imageData.data
+    const saturationFactor = saturationPercent / 100
+    
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i]
+      const g = data[i + 1]
+      const b = data[i + 2]
+      
+      // Convert to HSV
+      let [h, s, v] = rgbToHsv(r, g, b)
+      
+      // Apply hue shift
+      h = (h + hueShift) % 360
+      if (h < 0) h += 360
+      
+      // Apply saturation adjustment
+      s = Math.max(0, Math.min(1, s * saturationFactor))
+      
+      // Apply vibrance (increase saturation of less saturated colors more)
+      if (vibranceAdjust !== 0) {
+        const vibranceFactor = 1 + (vibranceAdjust / 100)
+        const adjustment = (1 - s) * (vibranceFactor - 1)
+        s = Math.max(0, Math.min(1, s + adjustment))
+      }
+      
+      // Convert back to RGB
+      const [newR, newG, newB] = hsvToRgb(h, s, v)
+      
+      data[i] = clamp(newR)
+      data[i + 1] = clamp(newG)
+      data[i + 2] = clamp(newB)
+    }
+    
+    return imageData
   }
 
   function applyBloom(imageData, intensity) {
@@ -1234,8 +1352,81 @@ function App() {
                   >
                     Add Color
                   </button>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                    <input
+                      type="checkbox"
+                      checked={manualRenderEnabled}
+                      onChange={(e) => setManualRenderEnabled(e.target.checked)}
+                      style={{
+                        width: '15px',
+                        height: '15px',
+                        cursor: 'pointer',
+                        accentColor: 'black'
+                      }}
+                    />
+                    <div style={{ margin: 0, fontSize: '0.6rem' }}>Manual Render</div>
+                  </div>
+
+                  {manualRenderEnabled && (
+                    <button
+                      onClick={() => setRenderTrigger(prev => prev + 1)}
+                      style={{
+                        width: '100%',
+                        background: '#000000',
+                        border: '2px solid',
+                        borderTopColor: '#ffffff',
+                        borderLeftColor: '#ffffff',
+                        borderBottomColor: '#808080',
+                        borderRightColor: '#808080',
+                        color: 'white',
+                        padding: '4px',
+                        fontSize: '0.6rem',
+                        cursor: 'pointer',
+                        marginTop: '5px'
+                      }}
+                    >
+                      Render Now
+                    </button>
+                  )}
                 </div>
               )}
+
+              <div style={{ marginTop: '10px' }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '10px' }}>
+                  {'>'} Color_Adjustments_
+                </div>
+
+                <div>{'>'} Hue_Shift_</div>
+                <input
+                  type="range"
+                  min="-180"
+                  max="180"
+                  value={hue}
+                  onChange={(e) => setHue(parseInt(e.target.value, 10))}
+                />
+                <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{hue}°</div>
+
+                <div>{'>'} Vibrance_</div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={vibrance}
+                  onChange={(e) => setVibrance(parseInt(e.target.value, 10))}
+                />
+                <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{vibrance}%</div>
+
+                <div>{'>'} Saturation_</div>
+                <input
+                  type="range"
+                  min="0"
+                  max="200"
+                  value={saturation}
+                  onChange={(e) => setSaturation(parseInt(e.target.value, 10))}
+                />
+                <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{saturation}%</div>
+              </div>
             </div>
           )}
 
@@ -1290,6 +1481,48 @@ function App() {
                 disabled={rgbModeEnabled}
               />
             </>
+            )}
+
+            {!rgbModeEnabled && colorMode === 'rgb' && (
+              <div style={{
+                borderTop: '2px solid #808080',
+                margin: '10px 0',
+                padding: '10px 0 0 0'
+              }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '10px' }}>
+                  {'>'} Color_Adjustments_
+                </div>
+
+                <div>{'>'} Hue_Shift_</div>
+                <input
+                  type="range"
+                  min="-180"
+                  max="180"
+                  value={hue}
+                  onChange={(e) => setHue(parseInt(e.target.value, 10))}
+                />
+                <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{hue}°</div>
+
+                <div>{'>'} Vibrance_</div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={vibrance}
+                  onChange={(e) => setVibrance(parseInt(e.target.value, 10))}
+                />
+                <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{vibrance}%</div>
+
+                <div>{'>'} Saturation_</div>
+                <input
+                  type="range"
+                  min="0"
+                  max="200"
+                  value={saturation}
+                  onChange={(e) => setSaturation(parseInt(e.target.value, 10))}
+                />
+                <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{saturation}%</div>
+              </div>
             )}
 
             {/* Text Overlay Section - Available in both image and video modes */}

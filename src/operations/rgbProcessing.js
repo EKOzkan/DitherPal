@@ -1,5 +1,4 @@
 // RGB processing functions for multi-color dithering
-import { findNearestColor } from './palettes';
 
 // Helper function to get palette color by brightness
 function getPaletteColorByBrightness(brightness, palette) {
@@ -57,6 +56,319 @@ export function applyPaletteMapping(imageData, palette, useBrightnessMapping = t
   }
   
   return out;
+}
+
+function sortPaletteByBrightness(palette) {
+  return [...palette]
+    .map((color) => ({
+      color,
+      brightness: color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114
+    }))
+    .sort((a, b) => a.brightness - b.brightness)
+}
+
+function nearestIndex(value, levels) {
+  let bestIdx = 0
+  let bestDist = Infinity
+
+  for (let i = 0; i < levels.length; i++) {
+    const d = Math.abs(value - levels[i])
+    if (d < bestDist) {
+      bestDist = d
+      bestIdx = i
+    }
+  }
+
+  return bestIdx
+}
+
+function errorDiffuseToPaletteByBrightness(imageData, palette, kernel, serpentine = false) {
+  const width = imageData.width
+  const height = imageData.height
+  const src = imageData.data
+
+  const sorted = sortPaletteByBrightness(palette)
+  if (sorted.length === 0) return null
+
+  const levels = sorted.map((p) => p.brightness)
+  const colors = sorted.map((p) => p.color)
+
+  const lum = new Float32Array(width * height)
+  const alpha = new Uint8ClampedArray(width * height)
+  for (let i = 0, p = 0; p < lum.length; i += 4, p++) {
+    lum[p] = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2]
+    alpha[p] = src[i + 3]
+  }
+
+  const out = new ImageData(width, height)
+  const outData = out.data
+
+  for (let y = 0; y < height; y++) {
+    const dir = serpentine && y % 2 === 1 ? -1 : 1
+    const xStart = dir === 1 ? 0 : width - 1
+    const xEnd = dir === 1 ? width : -1
+
+    for (let x = xStart; x !== xEnd; x += dir) {
+      const p = y * width + x
+      const oldVal = lum[p]
+      const qIdx = nearestIndex(oldVal, levels)
+      const newVal = levels[qIdx]
+      const err = oldVal - newVal
+
+      lum[p] = newVal
+
+      for (const [dx, dy, w] of kernel) {
+        const nx = x + dx * dir
+        const ny = y + dy
+        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+          lum[ny * width + nx] += err * w
+        }
+      }
+
+      const i4 = p * 4
+      const [r, g, b] = colors[qIdx]
+      outData[i4] = r
+      outData[i4 + 1] = g
+      outData[i4 + 2] = b
+      outData[i4 + 3] = alpha[p]
+    }
+  }
+
+  return out
+}
+
+function buildBayerMatrix(size) {
+  let M = [
+    [0, 2],
+    [3, 1]
+  ]
+  let n = 2
+  while (n < size) {
+    const M2 = new Array(n * 2).fill(0).map(() => new Array(n * 2).fill(0))
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        const v = M[y][x] * 4
+        M2[y][x] = v + 0
+        M2[y][x + n] = v + 2
+        M2[y + n][x] = v + 3
+        M2[y + n][x + n] = v + 1
+      }
+    }
+    M = M2
+    n *= 2
+  }
+  return M
+}
+
+function orderedDitherToPaletteByBrightness(imageData, palette, matrixSize) {
+  const width = imageData.width
+  const height = imageData.height
+  const src = imageData.data
+
+  const sorted = sortPaletteByBrightness(palette)
+  if (sorted.length === 0) return null
+
+  const levels = sorted.map((p) => p.brightness)
+  const colors = sorted.map((p) => p.color)
+
+  const matrix = buildBayerMatrix(matrixSize)
+  const mSize = matrix.length
+
+  const out = new ImageData(width, height)
+  const outData = out.data
+
+  const step = 255 / Math.max(1, levels.length - 1)
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4
+      const lum = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2]
+      const t = (matrix[y % mSize][x % mSize] / (mSize * mSize) - 0.5) * step
+      const qIdx = nearestIndex(lum + t, levels)
+      const [r, g, b] = colors[qIdx]
+      outData[i] = r
+      outData[i + 1] = g
+      outData[i + 2] = b
+      outData[i + 3] = src[i + 3]
+    }
+  }
+
+  return out
+}
+
+function randomOrderedToPaletteByBrightness(imageData, palette, seed = 1) {
+  const width = imageData.width
+  const height = imageData.height
+  const src = imageData.data
+
+  const sorted = sortPaletteByBrightness(palette)
+  if (sorted.length === 0) return null
+
+  const levels = sorted.map((p) => p.brightness)
+  const colors = sorted.map((p) => p.color)
+
+  const noiseSize = 32
+  const noise = new Float32Array(noiseSize * noiseSize)
+  let rand = seed
+  const random = () => {
+    rand = (rand * 16807) % 2147483647
+    return rand / 2147483647
+  }
+
+  for (let i = 0; i < noise.length; i++) {
+    noise[i] = random() * 255
+  }
+
+  const out = new ImageData(width, height)
+  const outData = out.data
+
+  const step = 255 / Math.max(1, levels.length - 1)
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4
+      const lum = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2]
+      const n = noise[(y % noiseSize) * noiseSize + (x % noiseSize)]
+      const t = ((n / 255) - 0.5) * step
+      const qIdx = nearestIndex(lum + t, levels)
+      const [r, g, b] = colors[qIdx]
+      outData[i] = r
+      outData[i + 1] = g
+      outData[i + 2] = b
+      outData[i + 3] = src[i + 3]
+    }
+  }
+
+  return out
+}
+
+export function ditherToPaletteByBrightness(imageData, palette, algorithmName) {
+  if (!palette || palette.length === 0) return null
+
+  switch (algorithmName) {
+    case 'floydSteinberg':
+      return errorDiffuseToPaletteByBrightness(imageData, palette, [
+        [1, 0, 7 / 16],
+        [-1, 1, 3 / 16],
+        [0, 1, 5 / 16],
+        [1, 1, 1 / 16]
+      ])
+
+    case 'floydSteinbergSerpentine':
+      return errorDiffuseToPaletteByBrightness(imageData, palette, [
+        [1, 0, 7 / 16],
+        [-1, 1, 3 / 16],
+        [0, 1, 5 / 16],
+        [1, 1, 1 / 16]
+      ], true)
+
+    case 'falseFloydSteinberg':
+      return errorDiffuseToPaletteByBrightness(imageData, palette, [
+        [1, 0, 3 / 8],
+        [0, 1, 3 / 8],
+        [1, 1, 2 / 8]
+      ])
+
+    case 'atkinson':
+      return errorDiffuseToPaletteByBrightness(imageData, palette, [
+        [1, 0, 1 / 8],
+        [2, 0, 1 / 8],
+        [-1, 1, 1 / 8],
+        [0, 1, 1 / 8],
+        [1, 1, 1 / 8],
+        [0, 2, 1 / 8]
+      ])
+
+    case 'jarvisJudiceNinke':
+      return errorDiffuseToPaletteByBrightness(imageData, palette, [
+        [1, 0, 7 / 48],
+        [2, 0, 5 / 48],
+        [-2, 1, 3 / 48],
+        [-1, 1, 5 / 48],
+        [0, 1, 7 / 48],
+        [1, 1, 5 / 48],
+        [2, 1, 3 / 48],
+        [-2, 2, 1 / 48],
+        [-1, 2, 3 / 48],
+        [0, 2, 5 / 48],
+        [1, 2, 3 / 48],
+        [2, 2, 1 / 48]
+      ])
+
+    case 'stucki':
+      return errorDiffuseToPaletteByBrightness(imageData, palette, [
+        [1, 0, 8 / 42],
+        [2, 0, 4 / 42],
+        [-2, 1, 2 / 42],
+        [-1, 1, 4 / 42],
+        [0, 1, 8 / 42],
+        [1, 1, 4 / 42],
+        [2, 1, 2 / 42],
+        [-2, 2, 1 / 42],
+        [-1, 2, 2 / 42],
+        [0, 2, 4 / 42],
+        [1, 2, 2 / 42],
+        [2, 2, 1 / 42]
+      ])
+
+    case 'burkes':
+      return errorDiffuseToPaletteByBrightness(imageData, palette, [
+        [1, 0, 8 / 32],
+        [2, 0, 4 / 32],
+        [-2, 1, 2 / 32],
+        [-1, 1, 4 / 32],
+        [0, 1, 8 / 32],
+        [1, 1, 4 / 32],
+        [2, 1, 2 / 32]
+      ])
+
+    case 'sierra':
+      return errorDiffuseToPaletteByBrightness(imageData, palette, [
+        [1, 0, 5 / 32],
+        [2, 0, 3 / 32],
+        [-2, 1, 2 / 32],
+        [-1, 1, 4 / 32],
+        [0, 1, 5 / 32],
+        [1, 1, 4 / 32],
+        [2, 1, 2 / 32],
+        [-1, 2, 2 / 32],
+        [0, 2, 3 / 32],
+        [1, 2, 2 / 32]
+      ])
+
+    case 'twoRowSierra':
+      return errorDiffuseToPaletteByBrightness(imageData, palette, [
+        [1, 0, 4 / 16],
+        [2, 0, 3 / 16],
+        [-2, 1, 1 / 16],
+        [-1, 1, 2 / 16],
+        [0, 1, 3 / 16],
+        [1, 1, 2 / 16],
+        [2, 1, 1 / 16]
+      ])
+
+    case 'sierraLite':
+      return errorDiffuseToPaletteByBrightness(imageData, palette, [
+        [1, 0, 2 / 4],
+        [-1, 1, 1 / 4],
+        [0, 1, 2 / 4]
+      ])
+
+    case 'bayerOrdered':
+      return orderedDitherToPaletteByBrightness(imageData, palette, 8)
+
+    case 'bayerOrdered4x4':
+      return orderedDitherToPaletteByBrightness(imageData, palette, 4)
+
+    case 'bayerOrdered16x16':
+      return orderedDitherToPaletteByBrightness(imageData, palette, 16)
+
+    case 'randomOrdered':
+      return randomOrderedToPaletteByBrightness(imageData, palette, 1)
+
+    default:
+      return null
+  }
 }
 
 // RGB versions of dithering algorithms that work with palettes
