@@ -301,6 +301,20 @@ export class VideoProcessor {
 
     ditheredData = coloredData
 
+    // Apply HSV adjustments if any are non-default
+    const hue = options.hue !== undefined ? options.hue : 0
+    const vibrance = options.vibrance !== undefined ? options.vibrance : 0
+    const saturation = options.saturation !== undefined ? options.saturation : 100
+    
+    if (hue !== 0 || vibrance !== 0 || saturation !== 100) {
+      ditheredData = new ImageData(
+        new Uint8ClampedArray(ditheredData.data),
+        ditheredData.width,
+        ditheredData.height
+      )
+      ditheredData = this.applyHSVAdjustments(ditheredData, hue, vibrance, saturation)
+    }
+
     // Apply bloom as post-processing if enabled
     if (options.bloom > 0) {
       ditheredData = this.applyBloom(ditheredData, options.bloom)
@@ -435,6 +449,95 @@ export class VideoProcessor {
 
   clamp(value) {
     return Math.max(0, Math.min(255, value))
+  }
+
+  rgbToHsv(r, g, b) {
+    r /= 255
+    g /= 255
+    b /= 255
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const delta = max - min
+
+    let h = 0
+    let s = 0
+    const v = max
+
+    if (delta !== 0) {
+      s = delta / max
+      if (r === max) {
+        h = ((g - b) / delta) % 6
+      } else if (g === max) {
+        h = (b - r) / delta + 2
+      } else {
+        h = (r - g) / delta + 4
+      }
+      h = Math.round(h * 60)
+      if (h < 0) h += 360
+    }
+
+    return [h, s, v]
+  }
+
+  hsvToRgb(h, s, v) {
+    const c = v * s
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+    const m = v - c
+
+    let r = 0
+    let g = 0
+    let b = 0
+
+    if (h >= 0 && h < 60) {
+      r = c; g = x; b = 0
+    } else if (h >= 60 && h < 120) {
+      r = x; g = c; b = 0
+    } else if (h >= 120 && h < 180) {
+      r = 0; g = c; b = x
+    } else if (h >= 180 && h < 240) {
+      r = 0; g = x; b = c
+    } else if (h >= 240 && h < 300) {
+      r = x; g = 0; b = c
+    } else if (h >= 300 && h < 360) {
+      r = c; g = 0; b = x
+    }
+
+    return [
+      Math.round((r + m) * 255),
+      Math.round((g + m) * 255),
+      Math.round((b + m) * 255)
+    ]
+  }
+
+  applyHSVAdjustments(imageData, hueShift, vibranceAdjust, saturationPercent) {
+    const data = imageData.data
+    const saturationFactor = saturationPercent / 100
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i]
+      const g = data[i + 1]
+      const b = data[i + 2]
+
+      let [h, s, v] = this.rgbToHsv(r, g, b)
+
+      h = (h + hueShift) % 360
+      if (h < 0) h += 360
+
+      s = Math.max(0, Math.min(1, s * saturationFactor))
+
+      if (vibranceAdjust !== 0) {
+        const vibranceFactor = 1 + (vibranceAdjust / 100)
+        const adjustment = (1 - s) * (vibranceFactor - 1)
+        s = Math.max(0, Math.min(1, s + adjustment))
+      }
+
+      const [newR, newG, newB] = this.hsvToRgb(h, s, v)
+      data[i] = this.clamp(newR)
+      data[i + 1] = this.clamp(newG)
+      data[i + 2] = this.clamp(newB)
+    }
+
+    return imageData
   }
 
   async exportAsGIF(frameRate = 30, quality = 10) {
