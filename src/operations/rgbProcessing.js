@@ -1,6 +1,19 @@
 // RGB processing functions for multi-color dithering
 import { findNearestColor } from './palettes';
 
+// Helper function to get palette color by brightness
+function getPaletteColorByBrightness(brightness, palette) {
+  // Sort palette colors by brightness for proper grayscale-to-color mapping
+  const sortedPalette = [...palette].map((color) => ({
+    color,
+    brightness: color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114
+  })).sort((a, b) => a.brightness - b.brightness);
+  
+  // Map brightness (0-255) to palette index
+  const paletteIndex = Math.floor((brightness / 255) * (sortedPalette.length - 1));
+  return sortedPalette[paletteIndex].color;
+}
+
 // Apply RGB palette mapping to dithered grayscale image
 // This function takes a grayscale dithered image and maps it to a palette
 export function applyPaletteMapping(imageData, palette, useBrightnessMapping = true) {
@@ -10,26 +23,37 @@ export function applyPaletteMapping(imageData, palette, useBrightnessMapping = t
   const out = new ImageData(width, height);
   const outData = out.data;
   
-  for (let i = 0; i < srcData.length; i += 4) {
-    const brightness = (srcData[i] + srcData[i + 1] + srcData[i + 2]) / 3;
+  if (useBrightnessMapping) {
+    // Sort palette colors by brightness for proper grayscale-to-color mapping
+    const sortedPalette = [...palette].map((color, index) => ({
+      color,
+      index,
+      brightness: color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114
+    })).sort((a, b) => a.brightness - b.brightness);
     
-    if (useBrightnessMapping) {
-      // Map brightness to palette colors
-      // Find the color in palette that best matches this brightness level
-      const paletteColor = findNearestColor(brightness, brightness, brightness, palette);
+    for (let i = 0; i < srcData.length; i += 4) {
+      const brightness = (srcData[i] + srcData[i + 1] + srcData[i + 2]) / 3;
+      
+      // Map brightness (0-255) to palette index
+      const paletteIndex = Math.floor((brightness / 255) * (sortedPalette.length - 1));
+      const paletteColor = sortedPalette[paletteIndex].color;
+      
       outData[i] = paletteColor[0];
       outData[i + 1] = paletteColor[1];
       outData[i + 2] = paletteColor[2];
-    } else {
-      // Direct mapping - use the first color for black, last for white, interpolate in between
+      outData[i + 3] = srcData[i + 3]; // Preserve alpha
+    }
+  } else {
+    // Direct mapping - use the first color for black, last for white, interpolate in between
+    for (let i = 0; i < srcData.length; i += 4) {
+      const brightness = (srcData[i] + srcData[i + 1] + srcData[i + 2]) / 3;
       const paletteIndex = Math.floor((brightness / 255) * (palette.length - 1));
       const paletteColor = palette[paletteIndex];
       outData[i] = paletteColor[0];
       outData[i + 1] = paletteColor[1];
       outData[i + 2] = paletteColor[2];
+      outData[i + 3] = srcData[i + 3]; // Preserve alpha
     }
-    
-    outData[i + 3] = srcData[i + 3]; // Preserve alpha
   }
   
   return out;
@@ -74,7 +98,7 @@ export function floydSteinbergRGB(imageData, palette) {
   const out = new ImageData(width, height);
   for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
     const brightness = Math.max(0, Math.min(255, Math.round(gray[p])));
-    const paletteColor = findNearestColor(brightness, brightness, brightness, palette);
+    const paletteColor = getPaletteColorByBrightness(brightness, palette);
     out.data[i] = paletteColor[0];
     out.data[i + 1] = paletteColor[1];
     out.data[i + 2] = paletteColor[2];
@@ -118,7 +142,7 @@ export function atkinsonRGB(imageData, palette) {
   const out = new ImageData(width, height);
   for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
     const brightness = Math.max(0, Math.min(255, Math.round(gray[p])));
-    const paletteColor = findNearestColor(brightness, brightness, brightness, palette);
+    const paletteColor = getPaletteColorByBrightness(brightness, palette);
     out.data[i] = paletteColor[0];
     out.data[i + 1] = paletteColor[1];
     out.data[i + 2] = paletteColor[2];
@@ -174,7 +198,7 @@ export function jarvisJudiceNinkeRGB(imageData, palette) {
   const out = new ImageData(width, height);
   for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
     const brightness = Math.max(0, Math.min(255, Math.round(gray[p])));
-    const paletteColor = findNearestColor(brightness, brightness, brightness, palette);
+    const paletteColor = getPaletteColorByBrightness(brightness, palette);
     out.data[i] = paletteColor[0];
     out.data[i + 1] = paletteColor[1];
     out.data[i + 2] = paletteColor[2];
@@ -223,12 +247,12 @@ export function bayerOrderedRGB(imageData, palette, matrixSize = 8) {
       if (lum > 10) {
         const threshold = (matrix[y % mSize][x % mSize] / (mSize * mSize)) * 255;
         const brightness = lum < threshold ? 0 : 255;
-        const paletteColor = findNearestColor(brightness, brightness, brightness, palette);
+        const paletteColor = getPaletteColorByBrightness(brightness, palette);
         outData[i] = paletteColor[0];
         outData[i + 1] = paletteColor[1];
         outData[i + 2] = paletteColor[2];
       } else {
-        const paletteColor = findNearestColor(0, 0, 0, palette);
+        const paletteColor = getPaletteColorByBrightness(0, palette);
         outData[i] = paletteColor[0];
         outData[i + 1] = paletteColor[1];
         outData[i + 2] = paletteColor[2];
