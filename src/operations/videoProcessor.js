@@ -1,4 +1,6 @@
 // Video processing operations for dithering effects
+import { PRESET_PALETTES, hexToRgb } from './palettes'
+import { applyPaletteMapping } from './rgbProcessing'
 
 export class VideoProcessor {
   constructor() {
@@ -250,40 +252,51 @@ export class VideoProcessor {
       ditheredData = processedData
     }
 
-    // Apply color mode
-    const coloredData = new ImageData(
-      new Uint8ClampedArray(ditheredData.data),
-      ditheredData.width,
-      ditheredData.height
-    )
+    // Apply color mode or RGB palette mapping
+    let coloredData;
+    if (options.rgbModeEnabled) {
+     // RGB mode - map dithered grayscale to selected palette
+     const palette = options.selectedPalette === 'custom'
+       ? options.customPaletteColors.map(hexToRgb)
+       : PRESET_PALETTES[options.selectedPalette].colors;
 
-    // Apply color tinting based on selected mode
-    for (let i = 0; i < coloredData.data.length; i += 4) {
-      const brightness = (ditheredData.data[i] + ditheredData.data[i + 1] + ditheredData.data[i + 2]) / 3
+     coloredData = applyPaletteMapping(ditheredData, palette, true);
+    } else {
+     // Original color mode logic
+     coloredData = new ImageData(
+       new Uint8ClampedArray(ditheredData.data),
+       ditheredData.width,
+       ditheredData.height
+     )
 
-      if (options.colorMode === "rgb") {
-        coloredData.data[i] = (brightness / 255) * (options.redValue || 255)
-        coloredData.data[i + 1] = (brightness / 255) * (options.greenValue || 255)
-        coloredData.data[i + 2] = (brightness / 255) * (options.blueValue || 255)
-      } else {
-        // Parse the hex color into RGB components
-        const singleColor = options.singleColor || "#ffffff"
-        const r = parseInt(singleColor.slice(1, 3), 16)
-        const g = parseInt(singleColor.slice(3, 5), 16)
-        const b = parseInt(singleColor.slice(5, 7), 16)
-        
-        // Use threshold to create true black or selected color
-        if (brightness < 128) {
-          coloredData.data[i] = 0     // Black
-          coloredData.data[i + 1] = 0
-          coloredData.data[i + 2] = 0
-        } else {
-          coloredData.data[i] = r     // Selected color
-          coloredData.data[i + 1] = g
-          coloredData.data[i + 2] = b
-        }
-      }
-      coloredData.data[i + 3] = 255 // Alpha channel
+     // Apply color tinting based on selected mode
+     for (let i = 0; i < coloredData.data.length; i += 4) {
+       const brightness = (ditheredData.data[i] + ditheredData.data[i + 1] + ditheredData.data[i + 2]) / 3
+
+       if (options.colorMode === "rgb") {
+         coloredData.data[i] = (brightness / 255) * (options.redValue || 255)
+         coloredData.data[i + 1] = (brightness / 255) * (options.greenValue || 255)
+         coloredData.data[i + 2] = (brightness / 255) * (options.blueValue || 255)
+       } else {
+         // Parse the hex color into RGB components
+         const singleColor = options.singleColor || "#ffffff"
+         const r = parseInt(singleColor.slice(1, 3), 16)
+         const g = parseInt(singleColor.slice(3, 5), 16)
+         const b = parseInt(singleColor.slice(5, 7), 16)
+
+         // Use threshold to create true black or selected color
+         if (brightness < 128) {
+           coloredData.data[i] = 0     // Black
+           coloredData.data[i + 1] = 0
+           coloredData.data[i + 2] = 0
+         } else {
+           coloredData.data[i] = r     // Selected color
+           coloredData.data[i + 1] = g
+           coloredData.data[i + 2] = b
+         }
+       }
+       coloredData.data[i + 3] = 255 // Alpha channel
+     }
     }
 
     ditheredData = coloredData

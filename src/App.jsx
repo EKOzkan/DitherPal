@@ -22,6 +22,8 @@ import {
   halftoneCircles,
   grain
 } from './operations/algorithms'
+import { PRESET_PALETTES, hexToRgb } from './operations/palettes'
+import { applyPaletteMapping } from './operations/rgbProcessing'
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import { VideoProcessor } from './operations/videoProcessor'
 import { ImageToVideoProcessor } from './operations/imageToVideoProcessor'
@@ -62,6 +64,9 @@ function App() {
   const [blueValue, setBlueValue] = useState(255)
   const [singleColor, setSingleColor] = useState("#ffffff")
   const [crtEnabled, setCrtEnabled] = useState(false)
+  const [rgbModeEnabled, setRgbModeEnabled] = useState(false)
+  const [selectedPalette, setSelectedPalette] = useState('commodore64')
+  const [customPaletteColors, setCustomPaletteColors] = useState(['#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff'])
   const [textOverlayEnabled, setTextOverlayEnabled] = useState(false)
   const [textContent, setTextContent] = useState('YOUR TEXT HERE')
   const [textFontFamily, setTextFontFamily] = useState('Impact')
@@ -230,7 +235,10 @@ function App() {
         crtEnabled,
         glitchEnabled,
         glitchIntensity,
-        selectedGlitchEffect
+        selectedGlitchEffect,
+        rgbModeEnabled,
+        selectedPalette,
+        customPaletteColors
       }, {
         duration: imageAnimationDuration,
         frameRate: imageAnimationFrameRate,
@@ -364,7 +372,10 @@ function App() {
         greenValue,
         blueValue,
         singleColor,
-        crtEnabled
+        crtEnabled,
+        rgbModeEnabled,
+        selectedPalette,
+        customPaletteColors
       })
 
       setProcessedFrames(processed)
@@ -530,39 +541,50 @@ function App() {
             ditheredData = processedData
         }
 
-        // Apply color mode
-        const coloredData = new ImageData(
-          new Uint8ClampedArray(ditheredData.data),
-          ditheredData.width,
-          ditheredData.height
-        )
+        // Apply color mode or RGB palette mapping
+        let coloredData;
+        if (rgbModeEnabled) {
+          // RGB mode - map dithered grayscale to selected palette
+          const palette = selectedPalette === 'custom'
+            ? customPaletteColors.map(hexToRgb)
+            : PRESET_PALETTES[selectedPalette].colors;
 
-        // Apply color tinting based on selected mode
-        for (let i = 0; i < coloredData.data.length; i += 4) {
-          const brightness = (ditheredData.data[i] + ditheredData.data[i + 1] + ditheredData.data[i + 2]) / 3
+          coloredData = applyPaletteMapping(ditheredData, palette, true);
+        } else {
+          // Original color mode logic
+          coloredData = new ImageData(
+            new Uint8ClampedArray(ditheredData.data),
+            ditheredData.width,
+            ditheredData.height
+          )
 
-          if (colorMode === "rgb") {
-            coloredData.data[i] = (brightness / 255) * redValue
-            coloredData.data[i + 1] = (brightness / 255) * greenValue
-            coloredData.data[i + 2] = (brightness / 255) * blueValue
-          } else {
-            // Parse the hex color into RGB components
-            const r = parseInt(singleColor.slice(1, 3), 16)
-            const g = parseInt(singleColor.slice(3, 5), 16)
-            const b = parseInt(singleColor.slice(5, 7), 16)
-            
-            // Use threshold to create true black or selected color
-            if (brightness < 128) {
-              coloredData.data[i] = 0     // Black
-              coloredData.data[i + 1] = 0
-              coloredData.data[i + 2] = 0
+          // Apply color tinting based on selected mode
+          for (let i = 0; i < coloredData.data.length; i += 4) {
+            const brightness = (ditheredData.data[i] + ditheredData.data[i + 1] + ditheredData.data[i + 2]) / 3
+
+            if (colorMode === "rgb") {
+              coloredData.data[i] = (brightness / 255) * redValue
+              coloredData.data[i + 1] = (brightness / 255) * greenValue
+              coloredData.data[i + 2] = (brightness / 255) * blueValue
             } else {
-              coloredData.data[i] = r     // Selected color
-              coloredData.data[i + 1] = g
-              coloredData.data[i + 2] = b
+              // Parse the hex color into RGB components
+              const r = parseInt(singleColor.slice(1, 3), 16)
+              const g = parseInt(singleColor.slice(3, 5), 16)
+              const b = parseInt(singleColor.slice(5, 7), 16)
+
+              // Use threshold to create true black or selected color
+              if (brightness < 128) {
+                coloredData.data[i] = 0     // Black
+                coloredData.data[i + 1] = 0
+                coloredData.data[i + 2] = 0
+              } else {
+                coloredData.data[i] = r     // Selected color
+                coloredData.data[i + 1] = g
+                coloredData.data[i + 2] = b
+              }
             }
+            coloredData.data[i + 3] = 255 // Alpha channel
           }
-          coloredData.data[i + 3] = 255 // Alpha channel
         }
 
         ditheredData = coloredData
@@ -614,7 +636,7 @@ function App() {
       image.src = originalImage
     }
     console.log("effect applied with algorithm:", algorithm)
-  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled, textOverlayEnabled, textContent, textFontFamily, textFontSize, textColor, textStrokeColor, textStrokeWidth, textPositionX, textPositionY, textPositionType, textAlignment, textAnimationType, textAnimationDuration, textStartTime, textEndTime, textShadow]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled, rgbModeEnabled, selectedPalette, customPaletteColors, textOverlayEnabled, textContent, textFontFamily, textFontSize, textColor, textStrokeColor, textStrokeWidth, textPositionX, textPositionY, textPositionType, textAlignment, textAnimationType, textAnimationDuration, textStartTime, textEndTime, textShadow]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update frame preview when current frame changes
   useEffect(() => {
@@ -1118,10 +1140,110 @@ function App() {
             />
             <div style={{ margin: 0 }}>{'>'} CRT_Effect_</div>
           </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input
+              type="checkbox"
+              checked={rgbModeEnabled}
+              onChange={(e) => setRgbModeEnabled(e.target.checked)}
+              style={{
+                width: '15px',
+                height: '15px',
+                cursor: 'pointer',
+                accentColor: 'black'
+              }}
+            />
+            <div style={{ margin: 0 }}>{'>'} RGB_Image_</div>
+          </div>
+
+          {rgbModeEnabled && (
+            <div style={{
+              borderTop: '2px solid #808080',
+              margin: '10px 0',
+              padding: '10px 0 0 0'
+            }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '10px' }}>
+                {'>'} Palette_Settings_
+              </div>
+
+              <div>{'>'} Palette_Preset_</div>
+              <select
+                value={selectedPalette}
+                onChange={(e) => setSelectedPalette(e.target.value)}
+                style={{ marginBottom: '10px' }}
+              >
+                <option value="custom">Custom Palette</option>
+                {Object.keys(PRESET_PALETTES).map(key => (
+                  <option key={key} value={key}>{PRESET_PALETTES[key].name}</option>
+                ))}
+              </select>
+
+              {selectedPalette === 'custom' && (
+                <div style={{ marginTop: '10px' }}>
+                  <div>{'>'} Custom_Colors_</div>
+                  {customPaletteColors.map((color, index) => (
+                    <div key={index} style={{ display: 'flex', gap: '5px', marginBottom: '5px', alignItems: 'center' }}>
+                      <input
+                        type="color"
+                        value={color}
+                        onChange={(e) => {
+                          const newColors = [...customPaletteColors];
+                          newColors[index] = e.target.value;
+                          setCustomPaletteColors(newColors);
+                        }}
+                        style={{ flex: 1 }}
+                      />
+                      <button
+                        onClick={() => {
+                          const newColors = customPaletteColors.filter((_, i) => i !== index);
+                          if (newColors.length > 0) {
+                            setCustomPaletteColors(newColors);
+                          }
+                        }}
+                        style={{
+                          background: '#ff0000',
+                          color: 'white',
+                          border: 'none',
+                          padding: '2px 5px',
+                          fontSize: '0.6rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        X
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => {
+                      setCustomPaletteColors([...customPaletteColors, '#ffffff']);
+                    }}
+                    style={{
+                      width: '100%',
+                      background: '#000000',
+                      border: '2px solid',
+                      borderTopColor: '#ffffff',
+                      borderLeftColor: '#ffffff',
+                      borderBottomColor: '#808080',
+                      borderRightColor: '#808080',
+                      color: 'white',
+                      padding: '4px',
+                      fontSize: '0.6rem',
+                      cursor: 'pointer',
+                      marginTop: '5px'
+                    }}
+                  >
+                    Add Color
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div>{'>'} Color_Mode_</div>
           <select
             value={colorMode}
             onChange={(e) => setColorMode(e.target.value)}
+            disabled={rgbModeEnabled}
           >
             <option value="rgb">RGB Mode</option>
             <option value="single">Single Color Mode</option>
@@ -1136,6 +1258,7 @@ function App() {
                 max="255"
                 value={redValue}
                 onChange={(e) => setRedValue(parseInt(e.target.value, 10))}
+                disabled={rgbModeEnabled}
               />
               <div>{'>'} Green_</div>
               <input
@@ -1144,6 +1267,7 @@ function App() {
                 max="255"
                 value={greenValue}
                 onChange={(e) => setGreenValue(parseInt(e.target.value, 10))}
+                disabled={rgbModeEnabled}
               />
               <div>{'>'} Blue_</div>
               <input
@@ -1152,6 +1276,7 @@ function App() {
                 max="255"
                 value={blueValue}
                 onChange={(e) => setBlueValue(parseInt(e.target.value, 10))}
+                disabled={rgbModeEnabled}
               />
             </>
           ) : (
@@ -1162,6 +1287,7 @@ function App() {
                 value={singleColor}
                 onChange={(e) => setSingleColor(e.target.value)}
                 style={{ width: "100%" }}
+                disabled={rgbModeEnabled}
               />
             </>
             )}
