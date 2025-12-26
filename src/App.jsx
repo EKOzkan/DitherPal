@@ -98,6 +98,156 @@ function App() {
     }
   }
 
+  const handleSaveSettings = () => {
+    const settings = {
+      version: '1.0',
+      timestamp: new Date().toISOString(),
+      imageSettings: {
+        size,
+        contrast,
+        midtones,
+        highlights,
+        threshold,
+        luminanceThresholdEnabled,
+        algorithm,
+        bloom,
+        colorMode,
+        redValue,
+        greenValue,
+        blueValue,
+        singleColor,
+        crtEnabled,
+        rgbModeEnabled,
+        selectedPalette,
+        customPaletteColors,
+        hue,
+        vibrance,
+        saturation,
+        manualRenderEnabled
+      },
+      videoSettings: {
+        frameRate,
+        glitchEnabled,
+        glitchIntensity,
+        selectedGlitchEffect,
+        imageAnimationDuration,
+        imageAnimationFrameRate,
+        imageAnimationType,
+        imageAnimationCycles,
+        imageAnimationIntensity
+      },
+      textOverlaySettings: {
+        textOverlayEnabled,
+        textContent,
+        textFontFamily,
+        textFontSize,
+        textColor,
+        textStrokeColor,
+        textStrokeWidth,
+        textPositionX,
+        textPositionY,
+        textPositionType,
+        textAlignment,
+        textAnimationType,
+        textAnimationDuration,
+        textStartTime,
+        textEndTime,
+        textShadow
+      }
+    }
+
+    const dataStr = JSON.stringify(settings, null, 2)
+    const dataBlob = new Blob([dataStr], { type: 'application/json' })
+    const url = URL.createObjectURL(dataBlob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'dither-settings.json'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleLoadSettings = (event) => {
+    const file = event.target.files[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const settings = JSON.parse(e.target.result)
+        
+        if (!settings.version) {
+          alert('Invalid settings file format.')
+          return
+        }
+
+        if (settings.imageSettings) {
+          const img = settings.imageSettings
+          if (img.size !== undefined) SetSize(img.size)
+          if (img.contrast !== undefined) setContrast(img.contrast)
+          if (img.midtones !== undefined) setMidtones(img.midtones)
+          if (img.highlights !== undefined) setHighlights(img.highlights)
+          if (img.threshold !== undefined) setThreshold(img.threshold)
+          if (img.luminanceThresholdEnabled !== undefined) setLuminanceThresholdEnabled(img.luminanceThresholdEnabled)
+          if (img.algorithm !== undefined) setAlgorithm(img.algorithm)
+          if (img.bloom !== undefined) setBloom(img.bloom)
+          if (img.colorMode !== undefined) setColorMode(img.colorMode)
+          if (img.redValue !== undefined) setRedValue(img.redValue)
+          if (img.greenValue !== undefined) setGreenValue(img.greenValue)
+          if (img.blueValue !== undefined) setBlueValue(img.blueValue)
+          if (img.singleColor !== undefined) setSingleColor(img.singleColor)
+          if (img.crtEnabled !== undefined) setCrtEnabled(img.crtEnabled)
+          if (img.rgbModeEnabled !== undefined) setRgbModeEnabled(img.rgbModeEnabled)
+          if (img.selectedPalette !== undefined) setSelectedPalette(img.selectedPalette)
+          if (img.customPaletteColors !== undefined) setCustomPaletteColors(img.customPaletteColors)
+          if (img.hue !== undefined) setHue(img.hue)
+          if (img.vibrance !== undefined) setVibrance(img.vibrance)
+          if (img.saturation !== undefined) setSaturation(img.saturation)
+          if (img.manualRenderEnabled !== undefined) setManualRenderEnabled(img.manualRenderEnabled)
+        }
+
+        if (settings.videoSettings) {
+          const vid = settings.videoSettings
+          if (vid.frameRate !== undefined) setFrameRate(vid.frameRate)
+          if (vid.glitchEnabled !== undefined) setGlitchEnabled(vid.glitchEnabled)
+          if (vid.glitchIntensity !== undefined) setGlitchIntensity(vid.glitchIntensity)
+          if (vid.selectedGlitchEffect !== undefined) setSelectedGlitchEffect(vid.selectedGlitchEffect)
+          if (vid.imageAnimationDuration !== undefined) setImageAnimationDuration(vid.imageAnimationDuration)
+          if (vid.imageAnimationFrameRate !== undefined) setImageAnimationFrameRate(vid.imageAnimationFrameRate)
+          if (vid.imageAnimationType !== undefined) setImageAnimationType(vid.imageAnimationType)
+          if (vid.imageAnimationCycles !== undefined) setImageAnimationCycles(vid.imageAnimationCycles)
+          if (vid.imageAnimationIntensity !== undefined) setImageAnimationIntensity(vid.imageAnimationIntensity)
+        }
+
+        if (settings.textOverlaySettings) {
+          const txt = settings.textOverlaySettings
+          if (txt.textOverlayEnabled !== undefined) setTextOverlayEnabled(txt.textOverlayEnabled)
+          if (txt.textContent !== undefined) setTextContent(txt.textContent)
+          if (txt.textFontFamily !== undefined) setTextFontFamily(txt.textFontFamily)
+          if (txt.textFontSize !== undefined) setTextFontSize(txt.textFontSize)
+          if (txt.textColor !== undefined) setTextColor(txt.textColor)
+          if (txt.textStrokeColor !== undefined) setTextStrokeColor(txt.textStrokeColor)
+          if (txt.textStrokeWidth !== undefined) setTextStrokeWidth(txt.textStrokeWidth)
+          if (txt.textPositionX !== undefined) setTextPositionX(txt.textPositionX)
+          if (txt.textPositionY !== undefined) setTextPositionY(txt.textPositionY)
+          if (txt.textPositionType !== undefined) setTextPositionType(txt.textPositionType)
+          if (txt.textAlignment !== undefined) setTextAlignment(txt.textAlignment)
+          if (txt.textAnimationType !== undefined) setTextAnimationType(txt.textAnimationType)
+          if (txt.textAnimationDuration !== undefined) setTextAnimationDuration(txt.textAnimationDuration)
+          if (txt.textStartTime !== undefined) setTextStartTime(txt.textStartTime)
+          if (txt.textEndTime !== undefined) setTextEndTime(txt.textEndTime)
+          if (txt.textShadow !== undefined) setTextShadow(txt.textShadow)
+        }
+
+        alert('Settings loaded successfully!')
+      } catch (error) {
+        console.error('Error loading settings:', error)
+        alert('Error loading settings file. Please check the file format.')
+      }
+    }
+    reader.readAsText(file)
+    event.target.value = ''
+  }
+
   const handleVideoUpload = async (file) => {
     try {
       const processor = new VideoProcessor()
@@ -996,6 +1146,54 @@ function App() {
             >
               Video
             </button>
+          </div>
+
+          <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
+            <button
+              onClick={handleSaveSettings}
+              style={{
+                flex: 1,
+                background: '#000000',
+                border: '2px solid',
+                borderTopColor: '#ffffff',
+                borderLeftColor: '#ffffff',
+                borderBottomColor: '#808080',
+                borderRightColor: '#808080',
+                color: '#00ff00',
+                padding: '4px',
+                fontSize: '0.6rem',
+                cursor: 'pointer'
+              }}
+            >
+              Save Settings
+            </button>
+            <label
+              htmlFor="load-settings"
+              style={{
+                flex: 1,
+                background: '#000000',
+                border: '2px solid',
+                borderTopColor: '#ffffff',
+                borderLeftColor: '#ffffff',
+                borderBottomColor: '#808080',
+                borderRightColor: '#808080',
+                color: '#00ff00',
+                padding: '4px',
+                fontSize: '0.6rem',
+                cursor: 'pointer',
+                textAlign: 'center',
+                display: 'block'
+              }}
+            >
+              Load Settings
+              <input
+                type="file"
+                id="load-settings"
+                accept=".json"
+                onChange={handleLoadSettings}
+                style={{ display: 'none' }}
+              />
+            </label>
           </div>
 
           {mediaType === 'image' ? (
