@@ -28,7 +28,7 @@ import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import { VideoProcessor } from './operations/videoProcessor'
 import { ImageToVideoProcessor } from './operations/imageToVideoProcessor'
 import { TextOverlay, TEXT_ANIMATION_TYPES, FONT_FAMILIES } from './operations/textOverlay'
-import { generateMask, removeBackground, clearMaskCache, getCachedRawMask, isMaskComputing, isFeatherComputing, applyFeatheringToMask, computeMaskSmart, getMaskCacheStats } from './operations/backgroundRemoval'
+import { generateMask, removeBackground, clearMaskCache, getCachedRawMask, isMaskComputing, applyFeatheringToMask, getMaskCacheStats } from './operations/backgroundRemoval'
 
 function App() {
   const [originalImage, setOriginalImage] = useState(null)
@@ -660,7 +660,7 @@ function App() {
       setCachedFeatheredMask(null)
       setCachedFeatherParams(null)
     }
-  }, [featherAmount, featherEdgesEnabled])
+  }, [featherAmount, featherEdgesEnabled, backgroundRemovalEnabled])
   
   // Clean up mask cache when component unmounts
   useEffect(() => {
@@ -719,7 +719,6 @@ function App() {
               } else {
                 console.log('🔄 Generating new raw mask for:', rawMaskCacheKey)
                 setIsComputingMask(true)
-                setIsApplyingFeather(true)
                 rawMask = await generateMask(workingImageData, maskSensitivity)
                 console.log('✅ Raw mask generated successfully')
                 setIsComputingMask(false)
@@ -749,6 +748,9 @@ function App() {
             
             // If no cached feathered mask, compute it
             if (featherEdgesEnabled && !featheredMask) {
+              console.log('⏳ Starting feathering computation...')
+              setIsApplyingFeather(true)
+              
               const featherResult = await applyFeatheringToMask(
                 rawMask,
                 workingImageData.width,
@@ -759,13 +761,12 @@ function App() {
               )
               
               if (featherResult.isComputing) {
-                console.log('⏳ Feathering is currently being computed, skipping...')
-                setIsApplyingFeather(true)
+                console.log('⏳ Feathering is still computing, waiting...')
                 return // Skip this render, will retry when feathering is done
               }
               
               if (featherResult.featheredMask) {
-                console.log('✅ Feathered mask computed')
+                console.log('✅ Feathered mask computed and cached')
                 featheredMask = featherResult.featheredMask
                 setCachedFeatheredMask(featheredMask)
                 setCachedFeatherParams(currentFeatherParams)
@@ -783,7 +784,6 @@ function App() {
                 featherAmount,
                 featheredMask // Pass cached feathered mask
               )
-              setIsApplyingFeather(false)
             }
           } catch (error) {
             console.error('❌ Background removal failed:', error)

@@ -9,6 +9,63 @@ class BackgroundRemovalProcessor {
     this.currentMask = null
     this.isComputingMask = false
     this.isApplyingFeather = false
+    this.featherWorker = null
+    this.featherRequestId = 0
+    this.pendingFeatherRequests = new Map()
+    this.initializeFeatherWorker()
+  }
+
+  initializeFeatherWorker() {
+    try {
+      // Create worker from the featherWorker.js file
+      this.featherWorker = new Worker(
+        new URL('./featherWorker.js', import.meta.url),
+        { type: 'module' }
+      )
+      
+      // Handle worker messages
+      this.featherWorker.onmessage = (event) => {
+        const { success, featheredData, error, requestId, processingTime } = event.data
+        
+        const request = this.pendingFeatherRequests.get(requestId)
+        if (!request) return
+        
+        this.pendingFeatherRequests.delete(requestId)
+        this.isApplyingFeather = this.pendingFeatherRequests.size > 0
+        
+        if (success) {
+          if (processingTime !== undefined) {
+            console.log(`⚡ Feathering completed in ${Math.round(processingTime)}ms (Web Worker)`)
+          }
+          request.resolve(featheredData)
+        } else {
+          console.error('Feathering worker failed:', error)
+          request.reject(new Error(error || 'Feathering failed'))
+        }
+      }
+      
+      this.featherWorker.onerror = (error) => {
+        console.error('Feather worker error:', error)
+        // Reject all pending requests
+        for (const [, request] of this.pendingFeatherRequests) {
+          request.reject(new Error('Worker error: ' + error.message))
+        }
+        this.pendingFeatherRequests.clear()
+        this.isApplyingFeather = false
+      }
+    } catch (error) {
+      console.error('Failed to initialize feather worker:', error)
+      this.featherWorker = null
+    }
+  }
+
+  terminateFeatherWorker() {
+    if (this.featherWorker) {
+      this.featherWorker.terminate()
+      this.featherWorker = null
+    }
+    this.pendingFeatherRequests.clear()
+    this.isApplyingFeather = false
   }
 
   async initialize() {
@@ -142,8 +199,7 @@ function getProcessor() {
 }
 
 /**
- * Applies feathering/smoothing to a mask and caches the result
- * This is an async operation to not block the UI
+ * Applies feathering/smoothing to a mask using Web Worker (non-blocking)
  * @param {ImageData} rawMask - The raw segmentation mask
  * @param {number} width - Image width
  * @param {number} height - Image height
@@ -170,24 +226,49 @@ async function applyFeatheringToMask(rawMask, width, height, sensitivity, feathe
     return { featheredMask: cachedFeatheredMask, isComputing: false }
   }
   
-  // Check if feathering is currently being computed
-  if (processor.isApplyingFeather) {
-    return { featheredMask: null, isComputing: true }
+  // If no worker available, fall back to synchronous computation
+  if (!processor.featherWorker) {
+    console.warn('Feather worker not available, using fallback')
+    const featheredMask = computeFeatheredMask(rawMask, width, height, sensitivity, featherAmount)
+    processor.setCachedFeatheredMask(rawMaskCacheKey, featherAmount, featherEnabled, featheredMask)
+    return { featheredMask, isComputing: false }
   }
   
-  // Compute the feathered mask asynchronously
+  // Compute the feathered mask using Web Worker (non-blocking)
   processor.isApplyingFeather = true
   
-  // Use setTimeout to yield to the main thread
-  await new Promise(resolve => setTimeout(resolve, 0))
-  
   try {
-    const featheredMask = computeFeatheredMask(rawMask, width, height, sensitivity, featherAmount)
+    // Create unique request ID
+    const requestId = processor.featherRequestId++
+    
+    // Create promise that will be resolved when worker responds
+    const featheredDataPromise = new Promise((resolve, reject) => {
+      processor.pendingFeatherRequests.set(requestId, { resolve, reject })
+    })
+    
+    // Send request to worker
+    processor.featherWorker.postMessage({
+      maskData: rawMask.data,
+      width: width,
+      height: height,
+      threshold: sensitivity,
+      featherAmount: featherAmount,
+      requestId: requestId
+    })
+    
+    // Wait for worker to complete
+    const featheredData = await featheredDataPromise
+    
+    // Convert to ImageData
+    const featheredMask = new ImageData(
+      new Uint8ClampedArray(featheredData),
+      width,
+      height
+    )
     
     // Cache the result
     processor.setCachedFeatheredMask(rawMaskCacheKey, featherAmount, featherEnabled, featheredMask)
     
-    processor.isApplyingFeather = false
     return { featheredMask, isComputing: false }
   } catch (error) {
     console.error('Feathering computation failed:', error)
@@ -197,7 +278,8 @@ async function applyFeatheringToMask(rawMask, width, height, sensitivity, feathe
 }
 
 /**
- * Computes a feathered version of the mask (synchronous, for internal use)
+ * Computes a feathered version of the mask (synchronous fallback)
+ * Uses a simplified box blur for better performance
  * @param {ImageData} mask - The raw segmentation mask
  * @param {number} width - Image width
  * @param {number} height - Image height
@@ -206,60 +288,62 @@ async function applyFeatheringToMask(rawMask, width, height, sensitivity, feathe
  * @returns {ImageData} - Feathered mask
  */
 function computeFeatheredMask(mask, width, height, threshold, featherAmount) {
+  // Simplified box blur for fallback (if worker fails)
   const result = new Uint8ClampedArray(mask.data)
+  const temp = new Uint8ClampedArray(mask.data)
   
-  // Create a smoothed version of the mask using Gaussian-like blur
-  const smoothedMask = new Uint8ClampedArray(mask.data.length)
+  const radius = Math.max(1, Math.min(20, Math.round(featherAmount)))
   
-  // First pass: compute smoothed mask values
+  // Horizontal pass
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4
-      const maskValue = mask.data[idx]
+      let sum = 0
+      let count = 0
       
-      // Only compute smoothed value for pixels near the edge
-      if (Math.abs(maskValue - threshold) < featherAmount * 20) {
-        let totalWeight = 0
-        let weightedSum = 0
-        
-        // Use a larger kernel for better quality
-        const kernelRadius = featherAmount * 2
-        
-        for (let dy = -kernelRadius; dy <= kernelRadius; dy++) {
-          for (let dx = -kernelRadius; dx <= kernelRadius; dx++) {
-            const ny = y + dy
-            const nx = x + dx
-            
-            if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-              const distance = Math.sqrt(dx * dx + dy * dy)
-              if (distance <= kernelRadius) {
-                const weight = Math.exp(-(distance * distance) / (2 * (featherAmount * featherAmount)))
-                const neighborIdx = (ny * width + nx) * 4
-                const neighborValue = mask.data[neighborIdx]
-                
-                weightedSum += neighborValue * weight
-                totalWeight += weight
-              }
-            }
-          }
+      for (let dx = -radius; dx <= radius; dx++) {
+        const nx = x + dx
+        if (nx >= 0 && nx < width) {
+          const idx = (y * width + nx) * 4
+          sum += mask.data[idx]
+          count++
         }
-        
-        smoothedMask[idx] = weightedSum / totalWeight
-        smoothedMask[idx + 1] = smoothedMask[idx]     // Keep grayscale
-        smoothedMask[idx + 2] = smoothedMask[idx]
-        smoothedMask[idx + 3] = 255                   // Alpha
-      } else {
-        // Keep original values for non-edge pixels
-        smoothedMask[idx] = maskValue
-        smoothedMask[idx + 1] = maskValue
-        smoothedMask[idx + 2] = maskValue
-        smoothedMask[idx + 3] = 255
       }
+      
+      const idx = (y * width + x) * 4
+      const avg = sum / count
+      temp[idx] = avg
+      temp[idx + 1] = avg
+      temp[idx + 2] = avg
+      temp[idx + 3] = 255
+    }
+  }
+  
+  // Vertical pass
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      let sum = 0
+      let count = 0
+      
+      for (let dy = -radius; dy <= radius; dy++) {
+        const ny = y + dy
+        if (ny >= 0 && ny < height) {
+          const idx = (ny * width + x) * 4
+          sum += temp[idx]
+          count++
+        }
+      }
+      
+      const idx = (y * width + x) * 4
+      const avg = sum / count
+      result[idx] = avg
+      result[idx + 1] = avg
+      result[idx + 2] = avg
+      result[idx + 3] = 255
     }
   }
   
   // Return as ImageData
-  return new ImageData(smoothedMask, width, height)
+  return new ImageData(result, width, height)
 }
 
 /**
@@ -267,12 +351,13 @@ function computeFeatheredMask(mask, width, height, threshold, featherAmount) {
  * @param {ImageData} imageData - The original image data
  * @param {ImageData} mask - The segmentation mask from MediaPipe (0-255 values)
  * @param {number} threshold - Sensitivity threshold (0-255, default 128)
- * @param {boolean} featherEdges - Whether to apply edge feathering
- * @param {number} featherAmount - Feather amount in pixels (1-20)
+ * @param {boolean} _featherEdges - Whether to apply edge feathering (unused, for API compatibility)
+ * @param {number} _featherAmount - Feather amount in pixels (unused, for API compatibility)
  * @param {ImageData} featheredMask - Optional pre-computed feathered mask (from cache)
  * @returns {ImageData} - Image with background removed (black background)
  */
-function removeBackground(imageData, mask, threshold = 128, featherEdges = false, featherAmount = 5, featheredMask = null) {
+// eslint-disable-next-line no-unused-vars
+function removeBackground(imageData, mask, threshold = 128, _featherEdges = false, _featherAmount = 5, featheredMask = null) {
   const result = new ImageData(
     new Uint8ClampedArray(imageData.data),
     imageData.width,
@@ -301,11 +386,13 @@ function removeBackground(imageData, mask, threshold = 128, featherEdges = false
 
 /**
  * Applies feathering directly to image data (legacy function, kept for compatibility)
+ * This function is not exported and not currently used, but kept for potential future use
  * @param {ImageData} imageData - The image data to modify
  * @param {ImageData} mask - The segmentation mask
  * @param {number} threshold - The threshold value
  * @param {number} featherAmount - Feather radius in pixels
  */
+// eslint-disable-next-line no-unused-vars
 function applyFeathering(imageData, mask, threshold, featherAmount) {
   const { width, height } = imageData
   const result = new Uint8ClampedArray(imageData.data)
