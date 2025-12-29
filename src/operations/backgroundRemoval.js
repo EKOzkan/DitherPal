@@ -4,9 +4,11 @@ class BackgroundRemovalProcessor {
   constructor() {
     this.selfieSegmentation = null
     this.modelLoaded = false
-    this.maskCache = new Map()
+    this.maskCache = new Map()           // Raw masks: key = `${width}x${height}_s${sensitivity}`
+    this.featheredMaskCache = new Map()  // Feathered masks: key = `${rawMaskKey}_f${featherAmount}_e${featherEnabled}`
     this.currentMask = null
     this.isComputingMask = false
+    this.isApplyingFeather = false
   }
 
   async initialize() {
@@ -42,17 +44,18 @@ class BackgroundRemovalProcessor {
     })
   }
 
-  async generateMask(imageData, sensitivity = 128, featherAmount = 5) {
-    // Create a cache key based on image dimensions, sensitivity, and feather amount
-    const cacheKey = `${imageData.width}x${imageData.height}_s${sensitivity}_f${featherAmount}`
+  async generateMask(imageData, sensitivity = 128) {
+    // Create a cache key based on image dimensions and sensitivity ONLY
+    // Feather parameters are handled separately in applyFeatheringToMask
+    const cacheKey = `${imageData.width}x${imageData.height}_s${sensitivity}`
 
-    // Check if we have a cached mask for this image with these parameters
+    // Check if we have a cached raw mask for this image with these parameters
     if (this.maskCache.has(cacheKey)) {
-      console.log('Using cached mask for:', cacheKey)
+      console.log('Using cached raw mask for:', cacheKey)
       return this.maskCache.get(cacheKey)
     }
 
-    console.log('No cached mask found for:', cacheKey, 'generating new one...')
+    console.log('No cached raw mask found for:', cacheKey, 'generating new one...')
 
     if (!this.modelLoaded) {
       await this.initialize()
@@ -79,7 +82,7 @@ class BackgroundRemovalProcessor {
 
           const maskData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height)
 
-          // Cache the mask with the full parameter key
+          // Cache the raw mask with sensitivity-only key
           this.maskCache.set(cacheKey, maskData)
           this.currentMask = maskData
           this.isComputingMask = false
@@ -101,15 +104,29 @@ class BackgroundRemovalProcessor {
 
   clearMaskCache() {
     this.maskCache.clear()
+    this.featheredMaskCache.clear()
     this.currentMask = null
   }
 
-  isMaskComputing() {
-    return this.isComputingMask
+  isFeatherComputing() {
+    return this.isApplyingFeather
   }
 
-  getCachedMaskForParams(width, height, sensitivity, featherAmount) {
-    const cacheKey = `${width}x${height}_s${sensitivity}_f${featherAmount}`
+  getCachedFeatheredMask(rawMaskCacheKey, featherAmount, featherEnabled) {
+    if (!featherEnabled) {
+      return null // No feathered mask needed when disabled
+    }
+    const cacheKey = `${rawMaskCacheKey}_f${featherAmount}_e${featherEnabled}`
+    return this.featheredMaskCache.get(cacheKey) || null
+  }
+
+  setCachedFeatheredMask(rawMaskCacheKey, featherAmount, featherEnabled, featheredMask) {
+    const cacheKey = `${rawMaskCacheKey}_f${featherAmount}_e${featherEnabled}`
+    this.featheredMaskCache.set(cacheKey, featheredMask)
+  }
+
+  getCachedRawMask(width, height, sensitivity) {
+    const cacheKey = `${width}x${height}_s${sensitivity}`
     return this.maskCache.get(cacheKey) || null
   }
 }
@@ -125,25 +142,150 @@ function getProcessor() {
 }
 
 /**
+ * Applies feathering/smoothing to a mask and caches the result
+ * This is an async operation to not block the UI
+ * @param {ImageData} rawMask - The raw segmentation mask
+ * @param {number} width - Image width
+ * @param {number} height - Image height
+ * @param {number} sensitivity - Sensitivity threshold
+ * @param {number} featherAmount - Feather radius in pixels
+ * @param {boolean} featherEnabled - Whether feathering is enabled
+ * @returns {Promise<{featheredMask: ImageData|null, isComputing: boolean}>}
+ */
+async function applyFeatheringToMask(rawMask, width, height, sensitivity, featherAmount, featherEnabled) {
+  const processor = getProcessor()
+  
+  // Create cache key for raw mask (dimensions + sensitivity)
+  const rawMaskCacheKey = `${width}x${height}_s${sensitivity}`
+  
+  // If feathering is disabled, return null (will use raw mask)
+  if (!featherEnabled || featherAmount <= 0) {
+    return { featheredMask: null, isComputing: false }
+  }
+  
+  // Check if we have a cached feathered mask
+  const cachedFeatheredMask = processor.getCachedFeatheredMask(rawMaskCacheKey, featherAmount, featherEnabled)
+  if (cachedFeatheredMask) {
+    console.log('Using cached feathered mask for:', `${rawMaskCacheKey}_f${featherAmount}_e${featherEnabled}`)
+    return { featheredMask: cachedFeatheredMask, isComputing: false }
+  }
+  
+  // Check if feathering is currently being computed
+  if (processor.isApplyingFeather) {
+    return { featheredMask: null, isComputing: true }
+  }
+  
+  // Compute the feathered mask asynchronously
+  processor.isApplyingFeather = true
+  
+  // Use setTimeout to yield to the main thread
+  await new Promise(resolve => setTimeout(resolve, 0))
+  
+  try {
+    const featheredMask = computeFeatheredMask(rawMask, width, height, sensitivity, featherAmount)
+    
+    // Cache the result
+    processor.setCachedFeatheredMask(rawMaskCacheKey, featherAmount, featherEnabled, featheredMask)
+    
+    processor.isApplyingFeather = false
+    return { featheredMask, isComputing: false }
+  } catch (error) {
+    console.error('Feathering computation failed:', error)
+    processor.isApplyingFeather = false
+    return { featheredMask: null, isComputing: false }
+  }
+}
+
+/**
+ * Computes a feathered version of the mask (synchronous, for internal use)
+ * @param {ImageData} mask - The raw segmentation mask
+ * @param {number} width - Image width
+ * @param {number} height - Image height
+ * @param {number} threshold - The threshold value
+ * @param {number} featherAmount - Feather radius in pixels
+ * @returns {ImageData} - Feathered mask
+ */
+function computeFeatheredMask(mask, width, height, threshold, featherAmount) {
+  const result = new Uint8ClampedArray(mask.data)
+  
+  // Create a smoothed version of the mask using Gaussian-like blur
+  const smoothedMask = new Uint8ClampedArray(mask.data.length)
+  
+  // First pass: compute smoothed mask values
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4
+      const maskValue = mask.data[idx]
+      
+      // Only compute smoothed value for pixels near the edge
+      if (Math.abs(maskValue - threshold) < featherAmount * 20) {
+        let totalWeight = 0
+        let weightedSum = 0
+        
+        // Use a larger kernel for better quality
+        const kernelRadius = featherAmount * 2
+        
+        for (let dy = -kernelRadius; dy <= kernelRadius; dy++) {
+          for (let dx = -kernelRadius; dx <= kernelRadius; dx++) {
+            const ny = y + dy
+            const nx = x + dx
+            
+            if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+              const distance = Math.sqrt(dx * dx + dy * dy)
+              if (distance <= kernelRadius) {
+                const weight = Math.exp(-(distance * distance) / (2 * (featherAmount * featherAmount)))
+                const neighborIdx = (ny * width + nx) * 4
+                const neighborValue = mask.data[neighborIdx]
+                
+                weightedSum += neighborValue * weight
+                totalWeight += weight
+              }
+            }
+          }
+        }
+        
+        smoothedMask[idx] = weightedSum / totalWeight
+        smoothedMask[idx + 1] = smoothedMask[idx]     // Keep grayscale
+        smoothedMask[idx + 2] = smoothedMask[idx]
+        smoothedMask[idx + 3] = 255                   // Alpha
+      } else {
+        // Keep original values for non-edge pixels
+        smoothedMask[idx] = maskValue
+        smoothedMask[idx + 1] = maskValue
+        smoothedMask[idx + 2] = maskValue
+        smoothedMask[idx + 3] = 255
+      }
+    }
+  }
+  
+  // Return as ImageData
+  return new ImageData(smoothedMask, width, height)
+}
+
+/**
  * Removes background from an image using MediaPipe segmentation mask
  * @param {ImageData} imageData - The original image data
  * @param {ImageData} mask - The segmentation mask from MediaPipe (0-255 values)
  * @param {number} threshold - Sensitivity threshold (0-255, default 128)
  * @param {boolean} featherEdges - Whether to apply edge feathering
  * @param {number} featherAmount - Feather amount in pixels (1-20)
+ * @param {ImageData} featheredMask - Optional pre-computed feathered mask (from cache)
  * @returns {ImageData} - Image with background removed (black background)
  */
-function removeBackground(imageData, mask, threshold = 128, featherEdges = false, featherAmount = 5) {
+function removeBackground(imageData, mask, threshold = 128, featherEdges = false, featherAmount = 5, featheredMask = null) {
   const result = new ImageData(
     new Uint8ClampedArray(imageData.data),
     imageData.width,
     imageData.height
   )
 
+  // Use feathered mask if provided, otherwise use raw mask
+  const maskToUse = featheredMask || mask
+
   // Apply binary thresholding based on mask sensitivity
   for (let i = 0; i < result.data.length; i += 4) {
     const maskIndex = Math.floor(i / 4)
-    const maskValue = mask.data[maskIndex * 4] // Mask is grayscale, so use red channel
+    const maskValue = maskToUse.data[maskIndex * 4] // Mask is grayscale, so use red channel
     
     // If mask value is below threshold, set pixel to black (background)
     if (maskValue < threshold) {
@@ -154,16 +296,11 @@ function removeBackground(imageData, mask, threshold = 128, featherEdges = false
     }
   }
 
-  // Apply feathering if enabled
-  if (featherEdges && featherAmount > 0) {
-    applyFeathering(result, mask, threshold, featherAmount)
-  }
-
   return result
 }
 
 /**
- * Applies feathering/smoothing to the edges of the segmented object
+ * Applies feathering directly to image data (legacy function, kept for compatibility)
  * @param {ImageData} imageData - The image data to modify
  * @param {ImageData} mask - The segmentation mask
  * @param {number} threshold - The threshold value
@@ -251,18 +388,24 @@ function clearMaskCache() {
 /**
  * Generates a segmentation mask for the given image data
  * @param {ImageData} imageData - The image data to process
+ * @param {number} sensitivity - Mask sensitivity threshold (0-255)
  * @returns {Promise<ImageData>} - Promise that resolves with the segmentation mask
  */
-function generateMask(imageData, sensitivity = 128, featherAmount = 5) {
-  return getProcessor().generateMask(imageData, sensitivity, featherAmount)
+function generateMask(imageData, sensitivity = 128) {
+  return getProcessor().generateMask(imageData, sensitivity)
 }
 
 function isMaskComputing() {
-  return getProcessor().isMaskComputing()
+  return getProcessor().isComputingMask
 }
 
-function getCachedMaskForParams(width, height, sensitivity, featherAmount) {
-  return getProcessor().getCachedMaskForParams(width, height, sensitivity, featherAmount)
+function isFeatherComputing() {
+  return getProcessor().isApplyingFeather
+}
+
+function getCachedRawMask(width, height, sensitivity) {
+  const processor = getProcessor()
+  return processor.getCachedRawMask(width, height, sensitivity)
 }
 
 /**
@@ -272,8 +415,10 @@ function getCachedMaskForParams(width, height, sensitivity, featherAmount) {
 function getMaskCacheStats() {
   const processor = getProcessor()
   return {
-    cacheSize: processor.maskCache.size,
+    rawMaskCacheSize: processor.maskCache.size,
+    featheredMaskCacheSize: processor.featheredMaskCache.size,
     isComputing: processor.isComputingMask,
+    isFeathering: processor.isApplyingFeather,
     currentMask: processor.currentMask ? `${processor.currentMask.width}x${processor.currentMask.height}` : null
   }
 }
@@ -282,21 +427,19 @@ function getMaskCacheStats() {
  * Smart mask computation that caches masks based on image content and parameters
  * @param {ImageData} imageData - The image data to process
  * @param {number} sensitivity - Mask sensitivity threshold (0-255)
- * @param {number} featherAmount - Edge feather amount in pixels
  * @param {boolean} backgroundRemovalEnabled - Whether background removal is enabled
  * @returns {Promise<{mask: ImageData|null, isComputing: boolean}>} - Object with mask and computing status
  */
-async function computeMaskSmart(imageData, sensitivity, featherAmount, backgroundRemovalEnabled) {
+async function computeMaskSmart(imageData, sensitivity, backgroundRemovalEnabled) {
   if (!backgroundRemovalEnabled) {
     return { mask: null, isComputing: false }
   }
 
-  // Check if we already have a cached mask for these exact parameters
-  const cachedMask = getCachedMaskForParams(
+  // Check if we already have a cached raw mask for these parameters
+  const cachedMask = getCachedRawMask(
     imageData.width, 
     imageData.height, 
-    sensitivity, 
-    featherAmount
+    sensitivity
   )
 
   if (cachedMask) {
@@ -313,7 +456,7 @@ async function computeMaskSmart(imageData, sensitivity, featherAmount, backgroun
 
   // Generate new mask with the current parameters
   try {
-    const mask = await generateMask(imageData, sensitivity, featherAmount)
+    const mask = await generateMask(imageData, sensitivity)
     return { mask, isComputing: false }
   } catch (error) {
     console.error('Mask generation failed:', error)
@@ -329,7 +472,10 @@ export {
   clearMaskCache,
   generateMask,
   isMaskComputing,
-  getCachedMaskForParams,
+  isFeatherComputing,
+  getCachedRawMask,
+  applyFeatheringToMask,
+  computeFeatheredMask,
   computeMaskSmart,
   getMaskCacheStats
 }

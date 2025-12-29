@@ -28,7 +28,7 @@ import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import { VideoProcessor } from './operations/videoProcessor'
 import { ImageToVideoProcessor } from './operations/imageToVideoProcessor'
 import { TextOverlay, TEXT_ANIMATION_TYPES, FONT_FAMILIES } from './operations/textOverlay'
-import { generateMask, removeBackground, clearMaskCache, getCachedMaskForParams, isMaskComputing, getMaskCacheStats } from './operations/backgroundRemoval'
+import { generateMask, removeBackground, clearMaskCache, getCachedRawMask, isMaskComputing, isFeatherComputing, applyFeatheringToMask, computeMaskSmart, getMaskCacheStats } from './operations/backgroundRemoval'
 
 function App() {
   const [originalImage, setOriginalImage] = useState(null)
@@ -89,6 +89,11 @@ function App() {
   const [featherEdgesEnabled, setFeatherEdgesEnabled] = useState(false)
   const [featherAmount, setFeatherAmount] = useState(5)
   const [isComputingMask, setIsComputingMask] = useState(false)
+  const [isApplyingFeather, setIsApplyingFeather] = useState(false)
+  
+  // Cached feathered mask state
+  const [cachedFeatheredMask, setCachedFeatheredMask] = useState(null)
+  const [cachedFeatherParams, setCachedFeatherParams] = useState(null)
   
   const [hue, setHue] = useState(0)
   const [vibrance, setVibrance] = useState(0)
@@ -110,7 +115,7 @@ function App() {
     console.log('=== Mask Cache Test ===')
     const stats = getMaskCacheStats()
     console.log('Cache stats:', stats)
-    alert(`Mask cache test: ${stats.cacheSize} masks cached, computing: ${stats.isComputing}`)
+    alert(`Raw masks: ${stats.rawMaskCacheSize}\nFeathered masks: ${stats.featheredMaskCacheSize}\nComputing mask: ${stats.isComputing}\nComputing feather: ${stats.isFeathering}`)
   }
 
   const handleSaveSettings = () => {
@@ -621,6 +626,9 @@ function App() {
     // Clear mask cache when switching modes
     clearMaskCache()
     setIsComputingMask(false)
+    setIsApplyingFeather(false)
+    setCachedFeatheredMask(null)
+    setCachedFeatherParams(null)
   }
 
   const customPaletteRenderKey = manualRenderEnabled && rgbModeEnabled && selectedPalette === 'custom'
@@ -632,15 +640,27 @@ function App() {
     if (!backgroundRemovalEnabled) {
       clearMaskCache()
       setIsComputingMask(false)
+      setCachedFeatheredMask(null)
+      setCachedFeatherParams(null)
     }
   }, [backgroundRemovalEnabled])
   
-  // Clear mask cache when mask sensitivity or feather amount changes
+  // Clear mask cache when mask sensitivity changes (affects raw mask)
   useEffect(() => {
     if (backgroundRemovalEnabled) {
       clearMaskCache()
+      setCachedFeatheredMask(null)
+      setCachedFeatherParams(null)
     }
-  }, [maskSensitivity, featherAmount])
+  }, [maskSensitivity, backgroundRemovalEnabled])
+  
+  // Clear only feathered mask cache when feather parameters change (raw mask can be reused)
+  useEffect(() => {
+    if (backgroundRemovalEnabled) {
+      setCachedFeatheredMask(null)
+      setCachedFeatherParams(null)
+    }
+  }, [featherAmount, featherEdgesEnabled])
   
   // Clean up mask cache when component unmounts
   useEffect(() => {
@@ -678,50 +698,97 @@ function App() {
         // Apply background removal if enabled
         if (backgroundRemovalEnabled) {
           try {
-            // Create cache key for current parameters
-            const cacheKey = `${workingImageData.width}x${workingImageData.height}_s${maskSensitivity}_f${featherAmount}`
-            console.log('Checking mask cache for:', cacheKey)
+            // Step 1: Get or generate raw segmentation mask
+            // Cache key based on dimensions + sensitivity only (feather handled separately)
+            const rawMaskCacheKey = `${workingImageData.width}x${workingImageData.height}_s${maskSensitivity}`
+            console.log('Checking raw mask cache for:', rawMaskCacheKey)
             
-            // Check if we have a cached mask for these parameters
-            const cachedMask = getCachedMaskForParams(
+            let rawMask = getCachedRawMask(
               workingImageData.width, 
               workingImageData.height, 
-              maskSensitivity, 
-              featherAmount
+              maskSensitivity
             )
             
-            let maskToUse = null
-            if (cachedMask) {
-              console.log('✅ Using cached mask for:', cacheKey)
-              maskToUse = cachedMask
-            } else {
+            if (!rawMask) {
               // Check if mask is currently being computed
               const isCurrentlyComputing = isMaskComputing()
               if (isCurrentlyComputing) {
-                console.log('⏳ Mask is currently being computed, skipping...')
+                console.log('⏳ Raw mask is currently being computed, skipping...')
                 setIsComputingMask(true)
+                return // Skip this render, will retry when mask is ready
               } else {
-                console.log('🔄 Generating new mask for:', cacheKey)
+                console.log('🔄 Generating new raw mask for:', rawMaskCacheKey)
                 setIsComputingMask(true)
-                maskToUse = await generateMask(workingImageData, maskSensitivity, featherAmount)
-                console.log('✅ Mask generated successfully')
+                setIsApplyingFeather(true)
+                rawMask = await generateMask(workingImageData, maskSensitivity)
+                console.log('✅ Raw mask generated successfully')
                 setIsComputingMask(false)
               }
             }
             
-            // Apply background removal if we have a mask
-            if (maskToUse) {
+            // Step 2: Get or compute feathered mask (separate cache)
+            const currentFeatherParams = {
+              enabled: featherEdgesEnabled,
+              amount: featherAmount,
+              sensitivity: maskSensitivity
+            }
+            
+            // Check if we have a cached feathered mask and parameters match
+            let featheredMask = null
+            if (featherEdgesEnabled && cachedFeatheredMask) {
+              const paramsMatch = cachedFeatherParams && 
+                cachedFeatherParams.enabled === featherEdgesEnabled &&
+                cachedFeatherParams.amount === featherAmount &&
+                cachedFeatherParams.sensitivity === maskSensitivity
+              
+              if (paramsMatch) {
+                console.log('✅ Using cached feathered mask')
+                featheredMask = cachedFeatheredMask
+              }
+            }
+            
+            // If no cached feathered mask, compute it
+            if (featherEdgesEnabled && !featheredMask) {
+              const featherResult = await applyFeatheringToMask(
+                rawMask,
+                workingImageData.width,
+                workingImageData.height,
+                maskSensitivity,
+                featherAmount,
+                featherEdgesEnabled
+              )
+              
+              if (featherResult.isComputing) {
+                console.log('⏳ Feathering is currently being computed, skipping...')
+                setIsApplyingFeather(true)
+                return // Skip this render, will retry when feathering is done
+              }
+              
+              if (featherResult.featheredMask) {
+                console.log('✅ Feathered mask computed')
+                featheredMask = featherResult.featheredMask
+                setCachedFeatheredMask(featheredMask)
+                setCachedFeatherParams(currentFeatherParams)
+              }
+              setIsApplyingFeather(false)
+            }
+            
+            // Step 3: Apply background removal using the appropriate mask
+            if (rawMask) {
               workingImageData = removeBackground(
                 workingImageData, 
-                maskToUse, 
+                rawMask, 
                 maskSensitivity, 
                 featherEdgesEnabled, 
-                featherAmount
+                featherAmount,
+                featheredMask // Pass cached feathered mask
               )
+              setIsApplyingFeather(false)
             }
           } catch (error) {
             console.error('❌ Background removal failed:', error)
             setIsComputingMask(false)
+            setIsApplyingFeather(false)
             // Continue with original image if background removal fails
           }
         }
@@ -2354,8 +2421,8 @@ function App() {
             </TransformWrapper>
             }
 
-            {/* Mask computation loading indicator */}
-            {isComputingMask && (
+            {/* Mask computation and feathering loading indicator */}
+            {(isComputingMask || isApplyingFeather) && (
               <div style={{
                 position: 'absolute',
                 top: '20px',
@@ -2369,7 +2436,7 @@ function App() {
                 border: '2px solid #00ff00',
                 fontWeight: 'bold'
               }}>
-                🔄 Computing segmentation mask...
+                {isComputingMask ? '🔄 Computing segmentation mask...' : '🔄 Applying feather effect...'}
               </div>
             )}
             </div>
