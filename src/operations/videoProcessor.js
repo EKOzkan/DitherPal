@@ -1,4 +1,7 @@
 // Video processing operations for dithering effects
+import { PRESET_PALETTES, hexToRgb } from './palettes'
+import { applyPaletteMapping } from './rgbProcessing'
+import { generateMask, removeBackground } from './backgroundRemoval'
 
 export class VideoProcessor {
   constructor() {
@@ -232,6 +235,27 @@ export class VideoProcessor {
       imageData.height
     )
 
+    // Apply background removal if enabled
+    if (options.backgroundRemovalEnabled) {
+      try {
+        const mask = await generateMask(
+          processedData,
+          options.maskSensitivity || 128,
+          options.featherAmount || 5
+        )
+        processedData = removeBackground(
+          processedData,
+          mask,
+          options.maskSensitivity || 128,
+          options.featherEdgesEnabled || false,
+          options.featherAmount || 5
+        )
+      } catch (error) {
+        console.error('Background removal failed:', error)
+        // Continue with original image if background removal fails
+      }
+    }
+
     // Apply adjustments
     this.applyContrast(processedData, options.contrast || 128)
     this.applyMidtones(processedData, options.midtones || 128)
@@ -250,43 +274,68 @@ export class VideoProcessor {
       ditheredData = processedData
     }
 
-    // Apply color mode
-    const coloredData = new ImageData(
-      new Uint8ClampedArray(ditheredData.data),
-      ditheredData.width,
-      ditheredData.height
-    )
+    // Apply color mode or RGB palette mapping
+    let coloredData;
+    if (options.rgbModeEnabled) {
+     // RGB mode - map dithered grayscale to selected palette
+     const palette = options.selectedPalette === 'custom'
+       ? options.customPaletteColors.map(hexToRgb)
+       : PRESET_PALETTES[options.selectedPalette].colors;
 
-    // Apply color tinting based on selected mode
-    for (let i = 0; i < coloredData.data.length; i += 4) {
-      const brightness = (ditheredData.data[i] + ditheredData.data[i + 1] + ditheredData.data[i + 2]) / 3
+     coloredData = applyPaletteMapping(ditheredData, palette, true);
+    } else {
+     // Original color mode logic
+     coloredData = new ImageData(
+       new Uint8ClampedArray(ditheredData.data),
+       ditheredData.width,
+       ditheredData.height
+     )
 
-      if (options.colorMode === "rgb") {
-        coloredData.data[i] = (brightness / 255) * (options.redValue || 255)
-        coloredData.data[i + 1] = (brightness / 255) * (options.greenValue || 255)
-        coloredData.data[i + 2] = (brightness / 255) * (options.blueValue || 255)
-      } else {
-        // Parse the hex color into RGB components
-        const singleColor = options.singleColor || "#ffffff"
-        const r = parseInt(singleColor.slice(1, 3), 16)
-        const g = parseInt(singleColor.slice(3, 5), 16)
-        const b = parseInt(singleColor.slice(5, 7), 16)
-        
-        // Use threshold to create true black or selected color
-        if (brightness < 128) {
-          coloredData.data[i] = 0     // Black
-          coloredData.data[i + 1] = 0
-          coloredData.data[i + 2] = 0
-        } else {
-          coloredData.data[i] = r     // Selected color
-          coloredData.data[i + 1] = g
-          coloredData.data[i + 2] = b
-        }
-      }
-      coloredData.data[i + 3] = 255 // Alpha channel
+     // Apply color tinting based on selected mode
+     for (let i = 0; i < coloredData.data.length; i += 4) {
+       const brightness = (ditheredData.data[i] + ditheredData.data[i + 1] + ditheredData.data[i + 2]) / 3
+
+       if (options.colorMode === "rgb") {
+         coloredData.data[i] = (brightness / 255) * (options.redValue || 255)
+         coloredData.data[i + 1] = (brightness / 255) * (options.greenValue || 255)
+         coloredData.data[i + 2] = (brightness / 255) * (options.blueValue || 255)
+       } else {
+         // Parse the hex color into RGB components
+         const singleColor = options.singleColor || "#ffffff"
+         const r = parseInt(singleColor.slice(1, 3), 16)
+         const g = parseInt(singleColor.slice(3, 5), 16)
+         const b = parseInt(singleColor.slice(5, 7), 16)
+
+         // Use threshold to create true black or selected color
+         if (brightness < 128) {
+           coloredData.data[i] = 0     // Black
+           coloredData.data[i + 1] = 0
+           coloredData.data[i + 2] = 0
+         } else {
+           coloredData.data[i] = r     // Selected color
+           coloredData.data[i + 1] = g
+           coloredData.data[i + 2] = b
+         }
+       }
+       coloredData.data[i + 3] = 255 // Alpha channel
+     }
     }
 
     ditheredData = coloredData
+
+    // Apply HSV adjustments if any are non-default
+    const hue = options.hue !== undefined ? options.hue : 0
+    const vibrance = options.vibrance !== undefined ? options.vibrance : 0
+    const saturation = options.saturation !== undefined ? options.saturation : 100
+    
+    if (hue !== 0 || vibrance !== 0 || saturation !== 100) {
+      ditheredData = new ImageData(
+        new Uint8ClampedArray(ditheredData.data),
+        ditheredData.width,
+        ditheredData.height
+      )
+      ditheredData = this.applyHSVAdjustments(ditheredData, hue, vibrance, saturation)
+    }
 
     // Apply bloom as post-processing if enabled
     if (options.bloom > 0) {
@@ -422,6 +471,95 @@ export class VideoProcessor {
 
   clamp(value) {
     return Math.max(0, Math.min(255, value))
+  }
+
+  rgbToHsv(r, g, b) {
+    r /= 255
+    g /= 255
+    b /= 255
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const delta = max - min
+
+    let h = 0
+    let s = 0
+    const v = max
+
+    if (delta !== 0) {
+      s = delta / max
+      if (r === max) {
+        h = ((g - b) / delta) % 6
+      } else if (g === max) {
+        h = (b - r) / delta + 2
+      } else {
+        h = (r - g) / delta + 4
+      }
+      h = Math.round(h * 60)
+      if (h < 0) h += 360
+    }
+
+    return [h, s, v]
+  }
+
+  hsvToRgb(h, s, v) {
+    const c = v * s
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+    const m = v - c
+
+    let r = 0
+    let g = 0
+    let b = 0
+
+    if (h >= 0 && h < 60) {
+      r = c; g = x; b = 0
+    } else if (h >= 60 && h < 120) {
+      r = x; g = c; b = 0
+    } else if (h >= 120 && h < 180) {
+      r = 0; g = c; b = x
+    } else if (h >= 180 && h < 240) {
+      r = 0; g = x; b = c
+    } else if (h >= 240 && h < 300) {
+      r = x; g = 0; b = c
+    } else if (h >= 300 && h < 360) {
+      r = c; g = 0; b = x
+    }
+
+    return [
+      Math.round((r + m) * 255),
+      Math.round((g + m) * 255),
+      Math.round((b + m) * 255)
+    ]
+  }
+
+  applyHSVAdjustments(imageData, hueShift, vibranceAdjust, saturationPercent) {
+    const data = imageData.data
+    const saturationFactor = saturationPercent / 100
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i]
+      const g = data[i + 1]
+      const b = data[i + 2]
+
+      let [h, s, v] = this.rgbToHsv(r, g, b)
+
+      h = (h + hueShift) % 360
+      if (h < 0) h += 360
+
+      s = Math.max(0, Math.min(1, s * saturationFactor))
+
+      if (vibranceAdjust !== 0) {
+        const vibranceFactor = 1 + (vibranceAdjust / 100)
+        const adjustment = (1 - s) * (vibranceFactor - 1)
+        s = Math.max(0, Math.min(1, s + adjustment))
+      }
+
+      const [newR, newG, newB] = this.hsvToRgb(h, s, v)
+      data[i] = this.clamp(newR)
+      data[i + 1] = this.clamp(newG)
+      data[i + 2] = this.clamp(newB)
+    }
+
+    return imageData
   }
 
   async exportAsGIF(frameRate = 30, quality = 10) {

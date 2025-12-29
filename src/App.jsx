@@ -22,10 +22,13 @@ import {
   halftoneCircles,
   grain
 } from './operations/algorithms'
+import { PRESET_PALETTES, hexToRgb } from './operations/palettes'
+import { applyPaletteMapping } from './operations/rgbProcessing'
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import { VideoProcessor } from './operations/videoProcessor'
 import { ImageToVideoProcessor } from './operations/imageToVideoProcessor'
 import { TextOverlay, TEXT_ANIMATION_TYPES, FONT_FAMILIES } from './operations/textOverlay'
+import { generateMask, removeBackground, clearMaskCache, getCachedMaskForParams, isMaskComputing, getMaskCacheStats } from './operations/backgroundRemoval'
 
 function App() {
   const [originalImage, setOriginalImage] = useState(null)
@@ -62,13 +65,16 @@ function App() {
   const [blueValue, setBlueValue] = useState(255)
   const [singleColor, setSingleColor] = useState("#ffffff")
   const [crtEnabled, setCrtEnabled] = useState(false)
+  const [rgbModeEnabled, setRgbModeEnabled] = useState(false)
+  const [selectedPalette, setSelectedPalette] = useState('commodore64')
+  const [customPaletteColors, setCustomPaletteColors] = useState(['#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff'])
   const [textOverlayEnabled, setTextOverlayEnabled] = useState(false)
-  const [textContent, setTextContent] = useState('Your Text Here')
-  const [textFontFamily, setTextFontFamily] = useState('Arial')
-  const [textFontSize, setTextFontSize] = useState(48)
+  const [textContent, setTextContent] = useState('YOUR TEXT HERE')
+  const [textFontFamily, setTextFontFamily] = useState('Impact')
+  const [textFontSize, setTextFontSize] = useState(72)
   const [textColor, setTextColor] = useState('#ffffff')
   const [textStrokeColor, setTextStrokeColor] = useState('#000000')
-  const [textStrokeWidth, setTextStrokeWidth] = useState(2)
+  const [textStrokeWidth, setTextStrokeWidth] = useState(4)
   const [textPositionX, setTextPositionX] = useState(50)
   const [textPositionY, setTextPositionY] = useState(50)
   const [textPositionType, setTextPositionType] = useState('percent')
@@ -78,6 +84,17 @@ function App() {
   const [textStartTime, setTextStartTime] = useState(0)
   const [textEndTime, setTextEndTime] = useState(10)
   const [textShadow, setTextShadow] = useState(true)
+  const [backgroundRemovalEnabled, setBackgroundRemovalEnabled] = useState(false)
+  const [maskSensitivity, setMaskSensitivity] = useState(128)
+  const [featherEdgesEnabled, setFeatherEdgesEnabled] = useState(false)
+  const [featherAmount, setFeatherAmount] = useState(5)
+  const [isComputingMask, setIsComputingMask] = useState(false)
+  
+  const [hue, setHue] = useState(0)
+  const [vibrance, setVibrance] = useState(0)
+  const [saturation, setSaturation] = useState(100)
+  const [manualRenderEnabled, setManualRenderEnabled] = useState(false)
+  const [renderTrigger, setRenderTrigger] = useState(0)
 
   const handleExport = () => {
     if (editedImage) {
@@ -86,6 +103,164 @@ function App() {
       link.href = editedImage
       link.click()
     }
+  }
+
+  // Test function to verify mask caching
+  const testMaskCaching = () => {
+    console.log('=== Mask Cache Test ===')
+    const stats = getMaskCacheStats()
+    console.log('Cache stats:', stats)
+    alert(`Mask cache test: ${stats.cacheSize} masks cached, computing: ${stats.isComputing}`)
+  }
+
+  const handleSaveSettings = () => {
+    const settings = {
+      version: '1.0',
+      timestamp: new Date().toISOString(),
+      imageSettings: {
+        size,
+        contrast,
+        midtones,
+        highlights,
+        threshold,
+        luminanceThresholdEnabled,
+        algorithm,
+        bloom,
+        colorMode,
+        redValue,
+        greenValue,
+        blueValue,
+        singleColor,
+        crtEnabled,
+        rgbModeEnabled,
+        selectedPalette,
+        customPaletteColors,
+        hue,
+        vibrance,
+        saturation,
+        manualRenderEnabled
+      },
+      videoSettings: {
+        frameRate,
+        glitchEnabled,
+        glitchIntensity,
+        selectedGlitchEffect,
+        imageAnimationDuration,
+        imageAnimationFrameRate,
+        imageAnimationType,
+        imageAnimationCycles,
+        imageAnimationIntensity
+      },
+      textOverlaySettings: {
+        textOverlayEnabled,
+        textContent,
+        textFontFamily,
+        textFontSize,
+        textColor,
+        textStrokeColor,
+        textStrokeWidth,
+        textPositionX,
+        textPositionY,
+        textPositionType,
+        textAlignment,
+        textAnimationType,
+        textAnimationDuration,
+        textStartTime,
+        textEndTime,
+        textShadow
+      }
+    }
+
+    const dataStr = JSON.stringify(settings, null, 2)
+    const dataBlob = new Blob([dataStr], { type: 'application/json' })
+    const url = URL.createObjectURL(dataBlob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'dither-settings.json'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleLoadSettings = (event) => {
+    const file = event.target.files[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const settings = JSON.parse(e.target.result)
+        
+        if (!settings.version) {
+          alert('Invalid settings file format.')
+          return
+        }
+
+        if (settings.imageSettings) {
+          const img = settings.imageSettings
+          if (img.size !== undefined) SetSize(img.size)
+          if (img.contrast !== undefined) setContrast(img.contrast)
+          if (img.midtones !== undefined) setMidtones(img.midtones)
+          if (img.highlights !== undefined) setHighlights(img.highlights)
+          if (img.threshold !== undefined) setThreshold(img.threshold)
+          if (img.luminanceThresholdEnabled !== undefined) setLuminanceThresholdEnabled(img.luminanceThresholdEnabled)
+          if (img.algorithm !== undefined) setAlgorithm(img.algorithm)
+          if (img.bloom !== undefined) setBloom(img.bloom)
+          if (img.colorMode !== undefined) setColorMode(img.colorMode)
+          if (img.redValue !== undefined) setRedValue(img.redValue)
+          if (img.greenValue !== undefined) setGreenValue(img.greenValue)
+          if (img.blueValue !== undefined) setBlueValue(img.blueValue)
+          if (img.singleColor !== undefined) setSingleColor(img.singleColor)
+          if (img.crtEnabled !== undefined) setCrtEnabled(img.crtEnabled)
+          if (img.rgbModeEnabled !== undefined) setRgbModeEnabled(img.rgbModeEnabled)
+          if (img.selectedPalette !== undefined) setSelectedPalette(img.selectedPalette)
+          if (img.customPaletteColors !== undefined) setCustomPaletteColors(img.customPaletteColors)
+          if (img.hue !== undefined) setHue(img.hue)
+          if (img.vibrance !== undefined) setVibrance(img.vibrance)
+          if (img.saturation !== undefined) setSaturation(img.saturation)
+          if (img.manualRenderEnabled !== undefined) setManualRenderEnabled(img.manualRenderEnabled)
+        }
+
+        if (settings.videoSettings) {
+          const vid = settings.videoSettings
+          if (vid.frameRate !== undefined) setFrameRate(vid.frameRate)
+          if (vid.glitchEnabled !== undefined) setGlitchEnabled(vid.glitchEnabled)
+          if (vid.glitchIntensity !== undefined) setGlitchIntensity(vid.glitchIntensity)
+          if (vid.selectedGlitchEffect !== undefined) setSelectedGlitchEffect(vid.selectedGlitchEffect)
+          if (vid.imageAnimationDuration !== undefined) setImageAnimationDuration(vid.imageAnimationDuration)
+          if (vid.imageAnimationFrameRate !== undefined) setImageAnimationFrameRate(vid.imageAnimationFrameRate)
+          if (vid.imageAnimationType !== undefined) setImageAnimationType(vid.imageAnimationType)
+          if (vid.imageAnimationCycles !== undefined) setImageAnimationCycles(vid.imageAnimationCycles)
+          if (vid.imageAnimationIntensity !== undefined) setImageAnimationIntensity(vid.imageAnimationIntensity)
+        }
+
+        if (settings.textOverlaySettings) {
+          const txt = settings.textOverlaySettings
+          if (txt.textOverlayEnabled !== undefined) setTextOverlayEnabled(txt.textOverlayEnabled)
+          if (txt.textContent !== undefined) setTextContent(txt.textContent)
+          if (txt.textFontFamily !== undefined) setTextFontFamily(txt.textFontFamily)
+          if (txt.textFontSize !== undefined) setTextFontSize(txt.textFontSize)
+          if (txt.textColor !== undefined) setTextColor(txt.textColor)
+          if (txt.textStrokeColor !== undefined) setTextStrokeColor(txt.textStrokeColor)
+          if (txt.textStrokeWidth !== undefined) setTextStrokeWidth(txt.textStrokeWidth)
+          if (txt.textPositionX !== undefined) setTextPositionX(txt.textPositionX)
+          if (txt.textPositionY !== undefined) setTextPositionY(txt.textPositionY)
+          if (txt.textPositionType !== undefined) setTextPositionType(txt.textPositionType)
+          if (txt.textAlignment !== undefined) setTextAlignment(txt.textAlignment)
+          if (txt.textAnimationType !== undefined) setTextAnimationType(txt.textAnimationType)
+          if (txt.textAnimationDuration !== undefined) setTextAnimationDuration(txt.textAnimationDuration)
+          if (txt.textStartTime !== undefined) setTextStartTime(txt.textStartTime)
+          if (txt.textEndTime !== undefined) setTextEndTime(txt.textEndTime)
+          if (txt.textShadow !== undefined) setTextShadow(txt.textShadow)
+        }
+
+        alert('Settings loaded successfully!')
+      } catch (error) {
+        console.error('Error loading settings:', error)
+        alert('Error loading settings file. Please check the file format.')
+      }
+    }
+    reader.readAsText(file)
+    event.target.value = ''
   }
 
   const handleVideoUpload = async (file) => {
@@ -230,7 +405,17 @@ function App() {
         crtEnabled,
         glitchEnabled,
         glitchIntensity,
-        selectedGlitchEffect
+        selectedGlitchEffect,
+        rgbModeEnabled,
+        selectedPalette,
+        customPaletteColors,
+        hue,
+        vibrance,
+        saturation,
+        backgroundRemovalEnabled,
+        maskSensitivity,
+        featherEdgesEnabled,
+        featherAmount
       }, {
         duration: imageAnimationDuration,
         frameRate: imageAnimationFrameRate,
@@ -364,7 +549,17 @@ function App() {
         greenValue,
         blueValue,
         singleColor,
-        crtEnabled
+        crtEnabled,
+        rgbModeEnabled,
+        selectedPalette,
+        customPaletteColors,
+        hue,
+        vibrance,
+        saturation,
+        backgroundRemovalEnabled,
+        maskSensitivity,
+        featherEdgesEnabled,
+        featherAmount
       })
 
       setProcessedFrames(processed)
@@ -422,14 +617,44 @@ function App() {
     setProcessedFrames([])
     setCurrentFrame(0)
     setVideoSource('upload')
+    
+    // Clear mask cache when switching modes
+    clearMaskCache()
+    setIsComputingMask(false)
   }
+
+  const customPaletteRenderKey = manualRenderEnabled && rgbModeEnabled && selectedPalette === 'custom'
+    ? `manual:${renderTrigger}`
+    : `auto:${customPaletteColors.join('|')}:${renderTrigger}`
+
+  // Clear mask cache when background removal is disabled or parameters change
+  useEffect(() => {
+    if (!backgroundRemovalEnabled) {
+      clearMaskCache()
+      setIsComputingMask(false)
+    }
+  }, [backgroundRemovalEnabled])
+  
+  // Clear mask cache when mask sensitivity or feather amount changes
+  useEffect(() => {
+    if (backgroundRemovalEnabled) {
+      clearMaskCache()
+    }
+  }, [maskSensitivity, featherAmount])
+  
+  // Clean up mask cache when component unmounts
+  useEffect(() => {
+    return () => {
+      clearMaskCache()
+    }
+  }, [])
 
   useEffect(() => {
     if (originalImage) {
       const canvas = document.createElement('canvas')
       const ctx = canvas.getContext('2d')
       const image = new Image()
-      image.onload = () => {
+      image.onload = async () => {
         const scale = size / 100
         const minSize = 200
         canvas.width = Math.max(Math.round(image.width * scale), minSize)
@@ -437,15 +662,69 @@ function App() {
         ctx.imageSmoothingEnabled = false  // Disable smoothing for initial canvas
         ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
 
+        // Clear mask cache when image or size changes
+        clearMaskCache()
+
         // Create a copy of the image data
         const originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
         // Create a fresh copy for adjustments
-        const workingImageData = new ImageData(
+        let workingImageData = new ImageData(
           new Uint8ClampedArray(originalImageData.data),
           originalImageData.width,
           originalImageData.height
         )
+
+        // Apply background removal if enabled
+        if (backgroundRemovalEnabled) {
+          try {
+            // Create cache key for current parameters
+            const cacheKey = `${workingImageData.width}x${workingImageData.height}_s${maskSensitivity}_f${featherAmount}`
+            console.log('Checking mask cache for:', cacheKey)
+            
+            // Check if we have a cached mask for these parameters
+            const cachedMask = getCachedMaskForParams(
+              workingImageData.width, 
+              workingImageData.height, 
+              maskSensitivity, 
+              featherAmount
+            )
+            
+            let maskToUse = null
+            if (cachedMask) {
+              console.log('✅ Using cached mask for:', cacheKey)
+              maskToUse = cachedMask
+            } else {
+              // Check if mask is currently being computed
+              const isCurrentlyComputing = isMaskComputing()
+              if (isCurrentlyComputing) {
+                console.log('⏳ Mask is currently being computed, skipping...')
+                setIsComputingMask(true)
+              } else {
+                console.log('🔄 Generating new mask for:', cacheKey)
+                setIsComputingMask(true)
+                maskToUse = await generateMask(workingImageData, maskSensitivity, featherAmount)
+                console.log('✅ Mask generated successfully')
+                setIsComputingMask(false)
+              }
+            }
+            
+            // Apply background removal if we have a mask
+            if (maskToUse) {
+              workingImageData = removeBackground(
+                workingImageData, 
+                maskToUse, 
+                maskSensitivity, 
+                featherEdgesEnabled, 
+                featherAmount
+              )
+            }
+          } catch (error) {
+            console.error('❌ Background removal failed:', error)
+            setIsComputingMask(false)
+            // Continue with original image if background removal fails
+          }
+        }
 
         // Apply selected dithering algorithm
         let ditheredData
@@ -530,42 +809,63 @@ function App() {
             ditheredData = processedData
         }
 
-        // Apply color mode
-        const coloredData = new ImageData(
-          new Uint8ClampedArray(ditheredData.data),
-          ditheredData.width,
-          ditheredData.height
-        )
+        // Apply color mode or RGB palette mapping
+        let coloredData;
+        if (rgbModeEnabled) {
+          // RGB mode - map dithered grayscale to selected palette
+          const palette = selectedPalette === 'custom'
+            ? customPaletteColors.map(hexToRgb)
+            : PRESET_PALETTES[selectedPalette].colors;
 
-        // Apply color tinting based on selected mode
-        for (let i = 0; i < coloredData.data.length; i += 4) {
-          const brightness = (ditheredData.data[i] + ditheredData.data[i + 1] + ditheredData.data[i + 2]) / 3
+          coloredData = applyPaletteMapping(ditheredData, palette, true);
+        } else {
+          // Original color mode logic
+          coloredData = new ImageData(
+            new Uint8ClampedArray(ditheredData.data),
+            ditheredData.width,
+            ditheredData.height
+          )
 
-          if (colorMode === "rgb") {
-            coloredData.data[i] = (brightness / 255) * redValue
-            coloredData.data[i + 1] = (brightness / 255) * greenValue
-            coloredData.data[i + 2] = (brightness / 255) * blueValue
-          } else {
-            // Parse the hex color into RGB components
-            const r = parseInt(singleColor.slice(1, 3), 16)
-            const g = parseInt(singleColor.slice(3, 5), 16)
-            const b = parseInt(singleColor.slice(5, 7), 16)
-            
-            // Use threshold to create true black or selected color
-            if (brightness < 128) {
-              coloredData.data[i] = 0     // Black
-              coloredData.data[i + 1] = 0
-              coloredData.data[i + 2] = 0
+          // Apply color tinting based on selected mode
+          for (let i = 0; i < coloredData.data.length; i += 4) {
+            const brightness = (ditheredData.data[i] + ditheredData.data[i + 1] + ditheredData.data[i + 2]) / 3
+
+            if (colorMode === "rgb") {
+              coloredData.data[i] = (brightness / 255) * redValue
+              coloredData.data[i + 1] = (brightness / 255) * greenValue
+              coloredData.data[i + 2] = (brightness / 255) * blueValue
             } else {
-              coloredData.data[i] = r     // Selected color
-              coloredData.data[i + 1] = g
-              coloredData.data[i + 2] = b
+              // Parse the hex color into RGB components
+              const r = parseInt(singleColor.slice(1, 3), 16)
+              const g = parseInt(singleColor.slice(3, 5), 16)
+              const b = parseInt(singleColor.slice(5, 7), 16)
+
+              // Use threshold to create true black or selected color
+              if (brightness < 128) {
+                coloredData.data[i] = 0     // Black
+                coloredData.data[i + 1] = 0
+                coloredData.data[i + 2] = 0
+              } else {
+                coloredData.data[i] = r     // Selected color
+                coloredData.data[i + 1] = g
+                coloredData.data[i + 2] = b
+              }
             }
+            coloredData.data[i + 3] = 255 // Alpha channel
           }
-          coloredData.data[i + 3] = 255 // Alpha channel
         }
 
         ditheredData = coloredData
+
+        // Apply HSV adjustments (hue, vibrance, saturation) if any are non-default
+        if (hue !== 0 || vibrance !== 0 || saturation !== 100) {
+          ditheredData = new ImageData(
+            new Uint8ClampedArray(ditheredData.data),
+            ditheredData.width,
+            ditheredData.height
+          )
+          ditheredData = applyHSVAdjustments(ditheredData, hue, vibrance, saturation)
+        }
 
         // Apply bloom as post-processing if enabled
         if (bloom > 0) {
@@ -598,13 +898,23 @@ function App() {
           applyCRTEffect(finalCtx, finalCanvas.width, finalCanvas.height)
         }
         
+        // Apply text overlay if enabled (for image mode)
+        if (textOverlayEnabled) {
+          const finalImageData = finalCtx.getImageData(0, 0, finalCanvas.width, finalCanvas.height)
+          const textOverlay = configureTextOverlay()
+          if (textOverlay) {
+            const withText = textOverlay.applyTextOverlay(finalImageData, 0, 0, 1)
+            finalCtx.putImageData(withText, 0, 0)
+          }
+        }
+        
         // Convert to data URL and update state
         setEditedImage(finalCanvas.toDataURL())
       }
       image.src = originalImage
     }
     console.log("effect applied with algorithm:", algorithm)
-  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled, rgbModeEnabled, selectedPalette, customPaletteRenderKey, textOverlayEnabled, textContent, textFontFamily, textFontSize, textColor, textStrokeColor, textStrokeWidth, textPositionX, textPositionY, textPositionType, textAlignment, textAnimationType, textAnimationDuration, textStartTime, textEndTime, textShadow, hue, vibrance, saturation, backgroundRemovalEnabled, maskSensitivity, featherEdgesEnabled, featherAmount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update frame preview when current frame changes
   useEffect(() => {
@@ -661,6 +971,99 @@ function App() {
 
   function clamp(value) {
     return Math.max(0, Math.min(255, value))
+  }
+
+  function rgbToHsv(r, g, b) {
+    r /= 255
+    g /= 255
+    b /= 255
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const delta = max - min
+    
+    let h = 0
+    let s = 0
+    const v = max
+    
+    if (delta !== 0) {
+      s = delta / max
+      if (r === max) {
+        h = ((g - b) / delta) % 6
+      } else if (g === max) {
+        h = (b - r) / delta + 2
+      } else {
+        h = (r - g) / delta + 4
+      }
+      h = Math.round(h * 60)
+      if (h < 0) h += 360
+    }
+    
+    return [h, s, v]
+  }
+
+  function hsvToRgb(h, s, v) {
+    const c = v * s
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+    const m = v - c
+    
+    let r = 0, g = 0, b = 0
+    
+    if (h >= 0 && h < 60) {
+      r = c; g = x; b = 0
+    } else if (h >= 60 && h < 120) {
+      r = x; g = c; b = 0
+    } else if (h >= 120 && h < 180) {
+      r = 0; g = c; b = x
+    } else if (h >= 180 && h < 240) {
+      r = 0; g = x; b = c
+    } else if (h >= 240 && h < 300) {
+      r = x; g = 0; b = c
+    } else if (h >= 300 && h < 360) {
+      r = c; g = 0; b = x
+    }
+    
+    return [
+      Math.round((r + m) * 255),
+      Math.round((g + m) * 255),
+      Math.round((b + m) * 255)
+    ]
+  }
+
+  function applyHSVAdjustments(imageData, hueShift, vibranceAdjust, saturationPercent) {
+    const data = imageData.data
+    const saturationFactor = saturationPercent / 100
+    
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i]
+      const g = data[i + 1]
+      const b = data[i + 2]
+      
+      // Convert to HSV
+      let [h, s, v] = rgbToHsv(r, g, b)
+      
+      // Apply hue shift
+      h = (h + hueShift) % 360
+      if (h < 0) h += 360
+      
+      // Apply saturation adjustment
+      s = Math.max(0, Math.min(1, s * saturationFactor))
+      
+      // Apply vibrance (increase saturation of less saturated colors more)
+      if (vibranceAdjust !== 0) {
+        const vibranceFactor = 1 + (vibranceAdjust / 100)
+        const adjustment = (1 - s) * (vibranceFactor - 1)
+        s = Math.max(0, Math.min(1, s + adjustment))
+      }
+      
+      // Convert back to RGB
+      const [newR, newG, newB] = hsvToRgb(h, s, v)
+      
+      data[i] = clamp(newR)
+      data[i + 1] = clamp(newG)
+      data[i + 2] = clamp(newB)
+    }
+    
+    return imageData
   }
 
   function applyBloom(imageData, intensity) {
@@ -846,6 +1249,54 @@ function App() {
             >
               Video
             </button>
+          </div>
+
+          <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
+            <button
+              onClick={handleSaveSettings}
+              style={{
+                flex: 1,
+                background: '#000000',
+                border: '2px solid',
+                borderTopColor: '#ffffff',
+                borderLeftColor: '#ffffff',
+                borderBottomColor: '#808080',
+                borderRightColor: '#808080',
+                color: '#00ff00',
+                padding: '4px',
+                fontSize: '0.6rem',
+                cursor: 'pointer'
+              }}
+            >
+              Save Settings
+            </button>
+            <label
+              htmlFor="load-settings"
+              style={{
+                flex: 1,
+                background: '#000000',
+                border: '2px solid',
+                borderTopColor: '#ffffff',
+                borderLeftColor: '#ffffff',
+                borderBottomColor: '#808080',
+                borderRightColor: '#808080',
+                color: '#00ff00',
+                padding: '4px',
+                fontSize: '0.6rem',
+                cursor: 'pointer',
+                textAlign: 'center',
+                display: 'block'
+              }}
+            >
+              Load Settings
+              <input
+                type="file"
+                id="load-settings"
+                accept=".json"
+                onChange={handleLoadSettings}
+                style={{ display: 'none' }}
+              />
+            </label>
           </div>
 
           {mediaType === 'image' ? (
@@ -1108,10 +1559,183 @@ function App() {
             />
             <div style={{ margin: 0 }}>{'>'} CRT_Effect_</div>
           </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input
+              type="checkbox"
+              checked={rgbModeEnabled}
+              onChange={(e) => setRgbModeEnabled(e.target.checked)}
+              style={{
+                width: '15px',
+                height: '15px',
+                cursor: 'pointer',
+                accentColor: 'black'
+              }}
+            />
+            <div style={{ margin: 0 }}>{'>'} RGB_Image_</div>
+          </div>
+
+          {rgbModeEnabled && (
+            <div style={{
+              borderTop: '2px solid #808080',
+              margin: '10px 0',
+              padding: '10px 0 0 0'
+            }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '10px' }}>
+                {'>'} Palette_Settings_
+              </div>
+
+              <div>{'>'} Palette_Preset_</div>
+              <select
+                value={selectedPalette}
+                onChange={(e) => setSelectedPalette(e.target.value)}
+                style={{ marginBottom: '10px' }}
+              >
+                <option value="custom">Custom Palette</option>
+                {Object.keys(PRESET_PALETTES).map(key => (
+                  <option key={key} value={key}>{PRESET_PALETTES[key].name}</option>
+                ))}
+              </select>
+
+              {selectedPalette === 'custom' && (
+                <div style={{ marginTop: '10px' }}>
+                  <div>{'>'} Custom_Colors_</div>
+                  {customPaletteColors.map((color, index) => (
+                    <div key={index} style={{ display: 'flex', gap: '5px', marginBottom: '5px', alignItems: 'center' }}>
+                      <input
+                        type="color"
+                        value={color}
+                        onChange={(e) => {
+                          const newColors = [...customPaletteColors];
+                          newColors[index] = e.target.value;
+                          setCustomPaletteColors(newColors);
+                        }}
+                        style={{ flex: 1 }}
+                      />
+                      <button
+                        onClick={() => {
+                          const newColors = customPaletteColors.filter((_, i) => i !== index);
+                          if (newColors.length > 0) {
+                            setCustomPaletteColors(newColors);
+                          }
+                        }}
+                        style={{
+                          background: '#ff0000',
+                          color: 'white',
+                          border: 'none',
+                          padding: '2px 5px',
+                          fontSize: '0.6rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        X
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => {
+                      setCustomPaletteColors([...customPaletteColors, '#ffffff']);
+                    }}
+                    style={{
+                      width: '100%',
+                      background: '#000000',
+                      border: '2px solid',
+                      borderTopColor: '#ffffff',
+                      borderLeftColor: '#ffffff',
+                      borderBottomColor: '#808080',
+                      borderRightColor: '#808080',
+                      color: 'white',
+                      padding: '4px',
+                      fontSize: '0.6rem',
+                      cursor: 'pointer',
+                      marginTop: '5px'
+                    }}
+                  >
+                    Add Color
+                  </button>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                    <input
+                      type="checkbox"
+                      checked={manualRenderEnabled}
+                      onChange={(e) => setManualRenderEnabled(e.target.checked)}
+                      style={{
+                        width: '15px',
+                        height: '15px',
+                        cursor: 'pointer',
+                        accentColor: 'black'
+                      }}
+                    />
+                    <div style={{ margin: 0, fontSize: '0.6rem' }}>Manual Render</div>
+                  </div>
+
+                  {manualRenderEnabled && (
+                    <button
+                      onClick={() => setRenderTrigger(prev => prev + 1)}
+                      style={{
+                        width: '100%',
+                        background: '#000000',
+                        border: '2px solid',
+                        borderTopColor: '#ffffff',
+                        borderLeftColor: '#ffffff',
+                        borderBottomColor: '#808080',
+                        borderRightColor: '#808080',
+                        color: 'white',
+                        padding: '4px',
+                        fontSize: '0.6rem',
+                        cursor: 'pointer',
+                        marginTop: '5px'
+                      }}
+                    >
+                      Render Now
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div style={{ marginTop: '10px' }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '10px' }}>
+                  {'>'} Color_Adjustments_
+                </div>
+
+                <div>{'>'} Hue_Shift_</div>
+                <input
+                  type="range"
+                  min="-180"
+                  max="180"
+                  value={hue}
+                  onChange={(e) => setHue(parseInt(e.target.value, 10))}
+                />
+                <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{hue}°</div>
+
+                <div>{'>'} Vibrance_</div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={vibrance}
+                  onChange={(e) => setVibrance(parseInt(e.target.value, 10))}
+                />
+                <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{vibrance}%</div>
+
+                <div>{'>'} Saturation_</div>
+                <input
+                  type="range"
+                  min="0"
+                  max="200"
+                  value={saturation}
+                  onChange={(e) => setSaturation(parseInt(e.target.value, 10))}
+                />
+                <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{saturation}%</div>
+              </div>
+            </div>
+          )}
+
           <div>{'>'} Color_Mode_</div>
           <select
             value={colorMode}
             onChange={(e) => setColorMode(e.target.value)}
+            disabled={rgbModeEnabled}
           >
             <option value="rgb">RGB Mode</option>
             <option value="single">Single Color Mode</option>
@@ -1126,6 +1750,7 @@ function App() {
                 max="255"
                 value={redValue}
                 onChange={(e) => setRedValue(parseInt(e.target.value, 10))}
+                disabled={rgbModeEnabled}
               />
               <div>{'>'} Green_</div>
               <input
@@ -1134,6 +1759,7 @@ function App() {
                 max="255"
                 value={greenValue}
                 onChange={(e) => setGreenValue(parseInt(e.target.value, 10))}
+                disabled={rgbModeEnabled}
               />
               <div>{'>'} Blue_</div>
               <input
@@ -1142,6 +1768,7 @@ function App() {
                 max="255"
                 value={blueValue}
                 onChange={(e) => setBlueValue(parseInt(e.target.value, 10))}
+                disabled={rgbModeEnabled}
               />
             </>
           ) : (
@@ -1152,22 +1779,96 @@ function App() {
                 value={singleColor}
                 onChange={(e) => setSingleColor(e.target.value)}
                 style={{ width: "100%" }}
+                disabled={rgbModeEnabled}
               />
             </>
             )}
 
-            {mediaType === 'video' && (
-              <>
-                <div style={{ 
-                  borderTop: '2px solid #808080', 
-                  margin: '10px 0', 
-                  padding: '10px 0 0 0' 
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+            {!rgbModeEnabled && colorMode === 'rgb' && (
+              <div style={{
+                borderTop: '2px solid #808080',
+                margin: '10px 0',
+                padding: '10px 0 0 0'
+              }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '10px' }}>
+                  {'>'} Color_Adjustments_
+                </div>
+
+                <div>{'>'} Hue_Shift_</div>
+                <input
+                  type="range"
+                  min="-180"
+                  max="180"
+                  value={hue}
+                  onChange={(e) => setHue(parseInt(e.target.value, 10))}
+                />
+                <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{hue}°</div>
+
+                <div>{'>'} Vibrance_</div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={vibrance}
+                  onChange={(e) => setVibrance(parseInt(e.target.value, 10))}
+                />
+                <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{vibrance}%</div>
+
+                <div>{'>'} Saturation_</div>
+                <input
+                  type="range"
+                  min="0"
+                  max="200"
+                  value={saturation}
+                  onChange={(e) => setSaturation(parseInt(e.target.value, 10))}
+                />
+                <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{saturation}%</div>
+              </div>
+            )}
+
+            {/* Background Removal Section */}
+            <div style={{
+              borderTop: '2px solid #808080',
+              margin: '10px 0',
+              padding: '10px 0 0 0'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <input
+                  type="checkbox"
+                  checked={backgroundRemovalEnabled}
+                  onChange={(e) => {
+                    setBackgroundRemovalEnabled(e.target.checked)
+                    if (!e.target.checked) {
+                      clearMaskCache()
+                    }
+                  }}
+                  style={{
+                    width: '15px',
+                    height: '15px',
+                    cursor: 'pointer',
+                    accentColor: 'black'
+                  }}
+                />
+                <div style={{ margin: 0, fontWeight: 'bold' }}>{'>'} Remove_Background_</div>
+              </div>
+
+              {backgroundRemovalEnabled && (
+                <>
+                  <div>{'>'} Mask_Sensitivity_</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="255"
+                    value={maskSensitivity}
+                    onChange={(e) => setMaskSensitivity(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>Threshold: {maskSensitivity}</div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
                     <input
                       type="checkbox"
-                      checked={textOverlayEnabled}
-                      onChange={(e) => setTextOverlayEnabled(e.target.checked)}
+                      checked={featherEdgesEnabled}
+                      onChange={(e) => setFeatherEdgesEnabled(e.target.checked)}
                       style={{
                         width: '15px',
                         height: '15px',
@@ -1175,8 +1876,46 @@ function App() {
                         accentColor: 'black'
                       }}
                     />
-                    <div style={{ margin: 0, fontWeight: 'bold' }}>{'>'} Text_Overlay_</div>
+                    <div style={{ margin: 0 }}>{'>'} Feather_Edges_</div>
                   </div>
+
+                  {featherEdgesEnabled && (
+                    <>
+                      <div>{'>'} Edge_Feather_Amount_</div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="20"
+                        value={featherAmount}
+                        onChange={(e) => setFeatherAmount(parseInt(e.target.value, 10))}
+                      />
+                      <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{featherAmount}px</div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Text Overlay Section - Available in both image and video modes */}
+            <div style={{ 
+              borderTop: '2px solid #808080', 
+              margin: '10px 0', 
+              padding: '10px 0 0 0' 
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <input
+                  type="checkbox"
+                  checked={textOverlayEnabled}
+                  onChange={(e) => setTextOverlayEnabled(e.target.checked)}
+                  style={{
+                    width: '15px',
+                    height: '15px',
+                    cursor: 'pointer',
+                    accentColor: 'black'
+                  }}
+                />
+                <div style={{ margin: 0, fontWeight: 'bold' }}>{'>'} Text_Overlay_</div>
+              </div>
 
                   {textOverlayEnabled && (
                     <>
@@ -1348,9 +2087,7 @@ function App() {
                       </div>
                     </>
                   )}
-                </div>
-              </>
-            )}
+            </div>
 
             {mediaType === 'video' && (
             <>
@@ -1545,6 +2282,30 @@ function App() {
              Export Image
             </button>
             </div>
+
+            {backgroundRemovalEnabled && (
+              <div className="file-input-container">
+              <button
+               onClick={testMaskCaching}
+               style={{
+                 width: '100%',
+                 background: '#000000',
+                 border: '2px solid',
+                 borderTopColor: '#00ff00',
+                 borderLeftColor: '#00ff00',
+                 borderBottomColor: '#008000',
+                 borderRightColor: '#008000',
+                 color: '#00ff00',
+                 padding: '4px',
+                 fontSize: '0.6rem',
+                 cursor: 'pointer',
+                 marginTop: '5px'
+               }}
+              >
+               Test Mask Cache
+              </button>
+              </div>
+            )}
         </div>
       </Rnd>
       <div style={{
@@ -1590,9 +2351,28 @@ function App() {
                 alt="Edited" 
               />
             </TransformComponent>
-          </TransformWrapper>
-        }
-      </div>
+            </TransformWrapper>
+            }
+
+            {/* Mask computation loading indicator */}
+            {isComputingMask && (
+              <div style={{
+                position: 'absolute',
+                top: '20px',
+                right: '20px',
+                background: 'rgba(0, 0, 0, 0.7)',
+                color: '#00ff00',
+                padding: '10px 15px',
+                borderRadius: '5px',
+                fontSize: '0.8rem',
+                zIndex: 1000,
+                border: '2px solid #00ff00',
+                fontWeight: 'bold'
+              }}>
+                🔄 Computing segmentation mask...
+              </div>
+            )}
+            </div>
     </div>
   )
 }
