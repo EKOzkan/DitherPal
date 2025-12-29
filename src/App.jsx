@@ -28,6 +28,7 @@ import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import { VideoProcessor } from './operations/videoProcessor'
 import { ImageToVideoProcessor } from './operations/imageToVideoProcessor'
 import { TextOverlay, TEXT_ANIMATION_TYPES, FONT_FAMILIES } from './operations/textOverlay'
+import { generateMask, removeBackground, clearMaskCache } from './operations/backgroundRemoval'
 
 function App() {
   const [originalImage, setOriginalImage] = useState(null)
@@ -83,6 +84,10 @@ function App() {
   const [textStartTime, setTextStartTime] = useState(0)
   const [textEndTime, setTextEndTime] = useState(10)
   const [textShadow, setTextShadow] = useState(true)
+  const [backgroundRemovalEnabled, setBackgroundRemovalEnabled] = useState(false)
+  const [maskSensitivity, setMaskSensitivity] = useState(128)
+  const [featherEdgesEnabled, setFeatherEdgesEnabled] = useState(false)
+  const [featherAmount, setFeatherAmount] = useState(5)
   const [hue, setHue] = useState(0)
   const [vibrance, setVibrance] = useState(0)
   const [saturation, setSaturation] = useState(100)
@@ -396,7 +401,11 @@ function App() {
         customPaletteColors,
         hue,
         vibrance,
-        saturation
+        saturation,
+        backgroundRemovalEnabled,
+        maskSensitivity,
+        featherEdgesEnabled,
+        featherAmount
       }, {
         duration: imageAnimationDuration,
         frameRate: imageAnimationFrameRate,
@@ -536,7 +545,11 @@ function App() {
         customPaletteColors,
         hue,
         vibrance,
-        saturation
+        saturation,
+        backgroundRemovalEnabled,
+        maskSensitivity,
+        featherEdgesEnabled,
+        featherAmount
       })
 
       setProcessedFrames(processed)
@@ -605,7 +618,7 @@ function App() {
       const canvas = document.createElement('canvas')
       const ctx = canvas.getContext('2d')
       const image = new Image()
-      image.onload = () => {
+      image.onload = async () => {
         const scale = size / 100
         const minSize = 200
         canvas.width = Math.max(Math.round(image.width * scale), minSize)
@@ -617,11 +630,28 @@ function App() {
         const originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
         // Create a fresh copy for adjustments
-        const workingImageData = new ImageData(
+        let workingImageData = new ImageData(
           new Uint8ClampedArray(originalImageData.data),
           originalImageData.width,
           originalImageData.height
         )
+
+        // Apply background removal if enabled
+        if (backgroundRemovalEnabled) {
+          try {
+            const mask = await generateMask(workingImageData)
+            workingImageData = removeBackground(
+              workingImageData, 
+              mask, 
+              maskSensitivity, 
+              featherEdgesEnabled, 
+              featherAmount
+            )
+          } catch (error) {
+            console.error('Background removal failed:', error)
+            // Continue with original image if background removal fails
+          }
+        }
 
         // Apply selected dithering algorithm
         let ditheredData
@@ -811,7 +841,7 @@ function App() {
       image.src = originalImage
     }
     console.log("effect applied with algorithm:", algorithm)
-  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled, rgbModeEnabled, selectedPalette, customPaletteRenderKey, textOverlayEnabled, textContent, textFontFamily, textFontSize, textColor, textStrokeColor, textStrokeWidth, textPositionX, textPositionY, textPositionType, textAlignment, textAnimationType, textAnimationDuration, textStartTime, textEndTime, textShadow, hue, vibrance, saturation]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled, rgbModeEnabled, selectedPalette, customPaletteRenderKey, textOverlayEnabled, textContent, textFontFamily, textFontSize, textColor, textStrokeColor, textStrokeWidth, textPositionX, textPositionY, textPositionType, textAlignment, textAnimationType, textAnimationDuration, textStartTime, textEndTime, textShadow, hue, vibrance, saturation, backgroundRemovalEnabled, maskSensitivity, featherEdgesEnabled, featherAmount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update frame preview when current frame changes
   useEffect(() => {
@@ -1722,6 +1752,76 @@ function App() {
                 <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{saturation}%</div>
               </div>
             )}
+
+            {/* Background Removal Section */}
+            <div style={{
+              borderTop: '2px solid #808080',
+              margin: '10px 0',
+              padding: '10px 0 0 0'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <input
+                  type="checkbox"
+                  checked={backgroundRemovalEnabled}
+                  onChange={(e) => {
+                    setBackgroundRemovalEnabled(e.target.checked)
+                    if (!e.target.checked) {
+                      clearMaskCache()
+                    }
+                  }}
+                  style={{
+                    width: '15px',
+                    height: '15px',
+                    cursor: 'pointer',
+                    accentColor: 'black'
+                  }}
+                />
+                <div style={{ margin: 0, fontWeight: 'bold' }}>{'>'} Remove_Background_</div>
+              </div>
+
+              {backgroundRemovalEnabled && (
+                <>
+                  <div>{'>'} Mask_Sensitivity_</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="255"
+                    value={maskSensitivity}
+                    onChange={(e) => setMaskSensitivity(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>Threshold: {maskSensitivity}</div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                    <input
+                      type="checkbox"
+                      checked={featherEdgesEnabled}
+                      onChange={(e) => setFeatherEdgesEnabled(e.target.checked)}
+                      style={{
+                        width: '15px',
+                        height: '15px',
+                        cursor: 'pointer',
+                        accentColor: 'black'
+                      }}
+                    />
+                    <div style={{ margin: 0 }}>{'>'} Feather_Edges_</div>
+                  </div>
+
+                  {featherEdgesEnabled && (
+                    <>
+                      <div>{'>'} Edge_Feather_Amount_</div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="20"
+                        value={featherAmount}
+                        onChange={(e) => setFeatherAmount(parseInt(e.target.value, 10))}
+                      />
+                      <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{featherAmount}px</div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
 
             {/* Text Overlay Section - Available in both image and video modes */}
             <div style={{ 

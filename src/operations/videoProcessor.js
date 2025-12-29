@@ -1,6 +1,7 @@
 // Video processing operations for dithering effects
 import { PRESET_PALETTES, hexToRgb } from './palettes'
 import { applyPaletteMapping } from './rgbProcessing'
+import { generateMask, removeBackground } from './backgroundRemoval'
 
 export class VideoProcessor {
   constructor() {
@@ -233,6 +234,23 @@ export class VideoProcessor {
       imageData.width,
       imageData.height
     )
+
+    // Apply background removal if enabled
+    if (options.backgroundRemovalEnabled) {
+      try {
+        const mask = await generateMask(processedData)
+        processedData = removeBackground(
+          processedData, 
+          mask, 
+          options.maskSensitivity || 128, 
+          options.featherEdgesEnabled || false, 
+          options.featherAmount || 5
+        )
+      } catch (error) {
+        console.error('Background removal failed:', error)
+        // Continue with original image if background removal fails
+      }
+    }
 
     // Apply adjustments
     this.applyContrast(processedData, options.contrast || 128)
