@@ -6,6 +6,7 @@ class BackgroundRemovalProcessor {
     this.modelLoaded = false
     this.maskCache = new Map()
     this.currentMask = null
+    this.isComputingMask = false
   }
 
   async initialize() {
@@ -41,25 +42,30 @@ class BackgroundRemovalProcessor {
     })
   }
 
-  async generateMask(imageData) {
-    // Create a cache key based on image dimensions
-    const cacheKey = `${imageData.width}x${imageData.height}`
-    
-    // Check if we have a cached mask for this image size
+  async generateMask(imageData, sensitivity = 128, featherAmount = 5) {
+    // Create a cache key based on image dimensions, sensitivity, and feather amount
+    const cacheKey = `${imageData.width}x${imageData.height}_s${sensitivity}_f${featherAmount}`
+
+    // Check if we have a cached mask for this image with these parameters
     if (this.maskCache.has(cacheKey)) {
+      console.log('Using cached mask for:', cacheKey)
       return this.maskCache.get(cacheKey)
     }
+
+    console.log('No cached mask found for:', cacheKey, 'generating new one...')
 
     if (!this.modelLoaded) {
       await this.initialize()
     }
+
+    this.isComputingMask = true
 
     return new Promise((resolve, reject) => {
       const canvas = document.createElement('canvas')
       canvas.width = imageData.width
       canvas.height = imageData.height
       const ctx = canvas.getContext('2d')
-      
+
       // Convert ImageData to canvas
       ctx.putImageData(imageData, 0, 0)
 
@@ -70,27 +76,41 @@ class BackgroundRemovalProcessor {
           maskCanvas.height = results.segmentationMask.height
           const maskCtx = maskCanvas.getContext('2d')
           maskCtx.drawImage(results.segmentationMask, 0, 0)
-          
+
           const maskData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height)
-          
-          // Cache the mask
+
+          // Cache the mask with the full parameter key
           this.maskCache.set(cacheKey, maskData)
           this.currentMask = maskData
-          
+          this.isComputingMask = false
+
           resolve(maskData)
         } else {
+          this.isComputingMask = false
           reject(new Error('Failed to generate segmentation mask'))
         }
       })
 
       this.selfieSegmentation.send({ image: canvas })
-        .catch(reject)
+        .catch((error) => {
+          this.isComputingMask = false
+          reject(error)
+        })
     })
   }
 
   clearMaskCache() {
     this.maskCache.clear()
     this.currentMask = null
+  }
+
+  isMaskComputing() {
+    return this.isComputingMask
+  }
+
+  getCachedMaskForParams(width, height, sensitivity, featherAmount) {
+    const cacheKey = `${width}x${height}_s${sensitivity}_f${featherAmount}`
+    return this.maskCache.get(cacheKey) || null
   }
 }
 
@@ -233,8 +253,72 @@ function clearMaskCache() {
  * @param {ImageData} imageData - The image data to process
  * @returns {Promise<ImageData>} - Promise that resolves with the segmentation mask
  */
-function generateMask(imageData) {
-  return getProcessor().generateMask(imageData)
+function generateMask(imageData, sensitivity = 128, featherAmount = 5) {
+  return getProcessor().generateMask(imageData, sensitivity, featherAmount)
+}
+
+function isMaskComputing() {
+  return getProcessor().isMaskComputing()
+}
+
+function getCachedMaskForParams(width, height, sensitivity, featherAmount) {
+  return getProcessor().getCachedMaskForParams(width, height, sensitivity, featherAmount)
+}
+
+/**
+ * Test function to verify mask caching is working
+ * @returns {Object} - Object with cache statistics
+ */
+function getMaskCacheStats() {
+  const processor = getProcessor()
+  return {
+    cacheSize: processor.maskCache.size,
+    isComputing: processor.isComputingMask,
+    currentMask: processor.currentMask ? `${processor.currentMask.width}x${processor.currentMask.height}` : null
+  }
+}
+
+/**
+ * Smart mask computation that caches masks based on image content and parameters
+ * @param {ImageData} imageData - The image data to process
+ * @param {number} sensitivity - Mask sensitivity threshold (0-255)
+ * @param {number} featherAmount - Edge feather amount in pixels
+ * @param {boolean} backgroundRemovalEnabled - Whether background removal is enabled
+ * @returns {Promise<{mask: ImageData|null, isComputing: boolean}>} - Object with mask and computing status
+ */
+async function computeMaskSmart(imageData, sensitivity, featherAmount, backgroundRemovalEnabled) {
+  if (!backgroundRemovalEnabled) {
+    return { mask: null, isComputing: false }
+  }
+
+  // Check if we already have a cached mask for these exact parameters
+  const cachedMask = getCachedMaskForParams(
+    imageData.width, 
+    imageData.height, 
+    sensitivity, 
+    featherAmount
+  )
+
+  if (cachedMask) {
+    return { mask: cachedMask, isComputing: false }
+  }
+
+  // Check if mask is currently being computed
+  const isCurrentlyComputing = isMaskComputing()
+  
+  if (isCurrentlyComputing) {
+    // Return null mask but indicate we're computing
+    return { mask: null, isComputing: true }
+  }
+
+  // Generate new mask with the current parameters
+  try {
+    const mask = await generateMask(imageData, sensitivity, featherAmount)
+    return { mask, isComputing: false }
+  } catch (error) {
+    console.error('Mask generation failed:', error)
+    return { mask: null, isComputing: false }
+  }
 }
 
 export {
@@ -243,5 +327,9 @@ export {
   isBackgroundRemovalAvailable,
   getCachedMask,
   clearMaskCache,
-  generateMask
+  generateMask,
+  isMaskComputing,
+  getCachedMaskForParams,
+  computeMaskSmart,
+  getMaskCacheStats
 }

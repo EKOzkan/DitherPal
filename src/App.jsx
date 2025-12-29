@@ -28,7 +28,7 @@ import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import { VideoProcessor } from './operations/videoProcessor'
 import { ImageToVideoProcessor } from './operations/imageToVideoProcessor'
 import { TextOverlay, TEXT_ANIMATION_TYPES, FONT_FAMILIES } from './operations/textOverlay'
-import { generateMask, removeBackground, clearMaskCache } from './operations/backgroundRemoval'
+import { generateMask, removeBackground, clearMaskCache, getCachedMaskForParams, isMaskComputing, getMaskCacheStats } from './operations/backgroundRemoval'
 
 function App() {
   const [originalImage, setOriginalImage] = useState(null)
@@ -88,6 +88,8 @@ function App() {
   const [maskSensitivity, setMaskSensitivity] = useState(128)
   const [featherEdgesEnabled, setFeatherEdgesEnabled] = useState(false)
   const [featherAmount, setFeatherAmount] = useState(5)
+  const [isComputingMask, setIsComputingMask] = useState(false)
+  
   const [hue, setHue] = useState(0)
   const [vibrance, setVibrance] = useState(0)
   const [saturation, setSaturation] = useState(100)
@@ -101,6 +103,14 @@ function App() {
       link.href = editedImage
       link.click()
     }
+  }
+
+  // Test function to verify mask caching
+  const testMaskCaching = () => {
+    console.log('=== Mask Cache Test ===')
+    const stats = getMaskCacheStats()
+    console.log('Cache stats:', stats)
+    alert(`Mask cache test: ${stats.cacheSize} masks cached, computing: ${stats.isComputing}`)
   }
 
   const handleSaveSettings = () => {
@@ -607,11 +617,37 @@ function App() {
     setProcessedFrames([])
     setCurrentFrame(0)
     setVideoSource('upload')
+    
+    // Clear mask cache when switching modes
+    clearMaskCache()
+    setIsComputingMask(false)
   }
 
   const customPaletteRenderKey = manualRenderEnabled && rgbModeEnabled && selectedPalette === 'custom'
     ? `manual:${renderTrigger}`
     : `auto:${customPaletteColors.join('|')}:${renderTrigger}`
+
+  // Clear mask cache when background removal is disabled or parameters change
+  useEffect(() => {
+    if (!backgroundRemovalEnabled) {
+      clearMaskCache()
+      setIsComputingMask(false)
+    }
+  }, [backgroundRemovalEnabled])
+  
+  // Clear mask cache when mask sensitivity or feather amount changes
+  useEffect(() => {
+    if (backgroundRemovalEnabled) {
+      clearMaskCache()
+    }
+  }, [maskSensitivity, featherAmount])
+  
+  // Clean up mask cache when component unmounts
+  useEffect(() => {
+    return () => {
+      clearMaskCache()
+    }
+  }, [])
 
   useEffect(() => {
     if (originalImage) {
@@ -626,6 +662,9 @@ function App() {
         ctx.imageSmoothingEnabled = false  // Disable smoothing for initial canvas
         ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
 
+        // Clear mask cache when image or size changes
+        clearMaskCache()
+
         // Create a copy of the image data
         const originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
@@ -639,16 +678,50 @@ function App() {
         // Apply background removal if enabled
         if (backgroundRemovalEnabled) {
           try {
-            const mask = await generateMask(workingImageData)
-            workingImageData = removeBackground(
-              workingImageData, 
-              mask, 
+            // Create cache key for current parameters
+            const cacheKey = `${workingImageData.width}x${workingImageData.height}_s${maskSensitivity}_f${featherAmount}`
+            console.log('Checking mask cache for:', cacheKey)
+            
+            // Check if we have a cached mask for these parameters
+            const cachedMask = getCachedMaskForParams(
+              workingImageData.width, 
+              workingImageData.height, 
               maskSensitivity, 
-              featherEdgesEnabled, 
               featherAmount
             )
+            
+            let maskToUse = null
+            if (cachedMask) {
+              console.log('✅ Using cached mask for:', cacheKey)
+              maskToUse = cachedMask
+            } else {
+              // Check if mask is currently being computed
+              const isCurrentlyComputing = isMaskComputing()
+              if (isCurrentlyComputing) {
+                console.log('⏳ Mask is currently being computed, skipping...')
+                setIsComputingMask(true)
+              } else {
+                console.log('🔄 Generating new mask for:', cacheKey)
+                setIsComputingMask(true)
+                maskToUse = await generateMask(workingImageData, maskSensitivity, featherAmount)
+                console.log('✅ Mask generated successfully')
+                setIsComputingMask(false)
+              }
+            }
+            
+            // Apply background removal if we have a mask
+            if (maskToUse) {
+              workingImageData = removeBackground(
+                workingImageData, 
+                maskToUse, 
+                maskSensitivity, 
+                featherEdgesEnabled, 
+                featherAmount
+              )
+            }
           } catch (error) {
-            console.error('Background removal failed:', error)
+            console.error('❌ Background removal failed:', error)
+            setIsComputingMask(false)
             // Continue with original image if background removal fails
           }
         }
@@ -2209,6 +2282,30 @@ function App() {
              Export Image
             </button>
             </div>
+
+            {backgroundRemovalEnabled && (
+              <div className="file-input-container">
+              <button
+               onClick={testMaskCaching}
+               style={{
+                 width: '100%',
+                 background: '#000000',
+                 border: '2px solid',
+                 borderTopColor: '#00ff00',
+                 borderLeftColor: '#00ff00',
+                 borderBottomColor: '#008000',
+                 borderRightColor: '#008000',
+                 color: '#00ff00',
+                 padding: '4px',
+                 fontSize: '0.6rem',
+                 cursor: 'pointer',
+                 marginTop: '5px'
+               }}
+              >
+               Test Mask Cache
+              </button>
+              </div>
+            )}
         </div>
       </Rnd>
       <div style={{
@@ -2254,9 +2351,28 @@ function App() {
                 alt="Edited" 
               />
             </TransformComponent>
-          </TransformWrapper>
-        }
-      </div>
+            </TransformWrapper>
+            }
+
+            {/* Mask computation loading indicator */}
+            {isComputingMask && (
+              <div style={{
+                position: 'absolute',
+                top: '20px',
+                right: '20px',
+                background: 'rgba(0, 0, 0, 0.7)',
+                color: '#00ff00',
+                padding: '10px 15px',
+                borderRadius: '5px',
+                fontSize: '0.8rem',
+                zIndex: 1000,
+                border: '2px solid #00ff00',
+                fontWeight: 'bold'
+              }}>
+                🔄 Computing segmentation mask...
+              </div>
+            )}
+            </div>
     </div>
   )
 }

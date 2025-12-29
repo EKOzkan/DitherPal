@@ -238,12 +238,16 @@ export class VideoProcessor {
     // Apply background removal if enabled
     if (options.backgroundRemovalEnabled) {
       try {
-        const mask = await generateMask(processedData)
+        const mask = await generateMask(
+          processedData,
+          options.maskSensitivity || 128,
+          options.featherAmount || 5
+        )
         processedData = removeBackground(
-          processedData, 
-          mask, 
-          options.maskSensitivity || 128, 
-          options.featherEdgesEnabled || false, 
+          processedData,
+          mask,
+          options.maskSensitivity || 128,
+          options.featherEdgesEnabled || false,
           options.featherAmount || 5
         )
       } catch (error) {
