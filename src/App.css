@@ -162,7 +162,41 @@ div {
   padding: 15px;
   background-color: black;
   color: white;
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+}
 
+/* Custom scrollbar for Windows 95 retro theme */
+.settings-container::-webkit-scrollbar {
+  width: 16px;
+}
+
+.settings-container::-webkit-scrollbar-track {
+  background: #000000;
+  border: 1px solid #808080;
+}
+
+.settings-container::-webkit-scrollbar-thumb {
+  background: #000000;
+  border: 2px solid;
+  border-top-color: #ffffff;
+  border-left-color: #ffffff;
+  border-bottom-color: #808080;
+  border-right-color: #808080;
+}
+
+.settings-container::-webkit-scrollbar-thumb:hover {
+  background: #404040;
+}
+
+.settings-container::-webkit-scrollbar-corner {
+  background: #000000;
+}
+
+/* Firefox scrollbar */
+.settings-container {
+  scrollbar-width: auto;
+  scrollbar-color: #000000 #000000;
 }
 
 /* Labels in settings container */
@@ -171,6 +205,66 @@ div {
   margin-top: 6px;
   margin-bottom: 3px;
   font-size: 0.65rem;
+}
+
+/* Collapsible section styles */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px;
+  margin: 10px 0 5px 0;
+  background: #000080;
+  border: 2px solid;
+  border-top-color: #ffffff;
+  border-left-color: #ffffff;
+  border-bottom-color: #808080;
+  border-right-color: #808080;
+  cursor: pointer;
+  user-select: none;
+  font-weight: bold;
+  font-size: 0.7rem;
+  transition: background 0.15s;
+}
+
+.section-header:hover {
+  background: #0000a0;
+}
+
+.section-header:active {
+  border-top-color: #808080;
+  border-left-color: #808080;
+  border-bottom-color: #ffffff;
+  border-right-color: #ffffff;
+}
+
+.section-header .section-title {
+  flex: 1;
+}
+
+.section-header .section-toggle {
+  margin-left: 8px;
+  font-size: 0.6rem;
+  min-width: 12px;
+  text-align: center;
+}
+
+.section-content {
+  overflow: hidden;
+  transition: max-height 0.3s ease-out, opacity 0.2s ease-out;
+  max-height: 2000px;
+  opacity: 1;
+}
+
+.section-content.collapsed {
+  max-height: 0;
+  opacity: 0;
+  padding: 0;
+}
+
+.section-content > div {
+  margin-top: 6px;
+  margin-bottom: 3px;
 }
 
 /* Main container */
