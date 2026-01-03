@@ -214,28 +214,18 @@ div {
   justify-content: space-between;
   padding: 8px 4px;
   margin: 10px 0 5px 0;
-  background: #000080;
-  border: 2px solid;
-  border-top-color: #ffffff;
-  border-left-color: #ffffff;
-  border-bottom-color: #808080;
-  border-right-color: #808080;
+  background: transparent;
+  border: none;
   cursor: pointer;
   user-select: none;
   font-weight: bold;
   font-size: 0.7rem;
-  transition: background 0.15s;
+  transition: color 0.15s;
+  color: white;
 }
 
 .section-header:hover {
-  background: #0000a0;
-}
-
-.section-header:active {
-  border-top-color: #808080;
-  border-left-color: #808080;
-  border-bottom-color: #ffffff;
-  border-right-color: #ffffff;
+  color: #c0c0c0;
 }
 
 .section-header .section-title {
