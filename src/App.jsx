@@ -2817,6 +2817,7 @@ function App() {
                   <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{saturation}%</div>
                 </CollapsibleSection>
               )}
+            </CollapsibleSection>
 
             <CollapsibleSection
               title="Effects"
@@ -3245,9 +3246,8 @@ function App() {
                 </>
               )}
             </CollapsibleSection>
-            </>
-            )}
           </>
+            )}
       </Rnd>
       <div style={{
         height:"100vh",
