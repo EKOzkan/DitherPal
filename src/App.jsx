@@ -31,11 +31,15 @@ import { VideoProcessor } from './operations/videoProcessor'
 import { ImageToVideoProcessor } from './operations/imageToVideoProcessor'
 import { TextOverlay, TEXT_ANIMATION_TYPES, FONT_FAMILIES } from './operations/textOverlay'
 import { generateMask, removeBackground, clearMaskCache, getCachedRawMask, isMaskComputing, applyFeatheringToMask, getMaskCacheStats } from './operations/backgroundRemoval'
+import { GraphEditor } from './graph'
 
 function App() {
   const [originalImage, setOriginalImage] = useState(null)
   const [editedImage, setEditedImage] = useState(null)
   const [mediaType, setMediaType] = useState('image') // 'image' or 'video'
+  const [graphMode, setGraphMode] = useState(false) // 'linear' or 'graph' mode
+  const [graphOutput, setGraphOutput] = useState(null) // ImageData from graph
+  const [originalImageData, setOriginalImageData] = useState(null) // ImageData for graph
   const [videoProcessor, setVideoProcessor] = useState(null)
   const [processedFrames, setProcessedFrames] = useState([])
   const [currentFrame, setCurrentFrame] = useState(0)
@@ -122,6 +126,45 @@ function App() {
       link.download = 'dithered_image.png'
       link.href = editedImage
       link.click()
+    }
+  }
+
+  // Convert ImageData to data URL
+  const imageDataToDataURL = (imageData) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = imageData.width
+    canvas.height = imageData.height
+    const ctx = canvas.getContext('2d')
+    ctx.putImageData(imageData, 0, 0)
+    return canvas.toDataURL('image/png')
+  }
+
+  // Convert data URL to ImageData
+  const dataURLToImageData = async (dataUrl) => {
+    if (!dataUrl) return null
+
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = img.width
+        canvas.height = img.height
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0)
+        const imageData = ctx.getImageData(0, 0, img.width, img.height)
+        resolve(imageData)
+      }
+      img.onerror = () => resolve(null)
+      img.src = dataUrl
+    })
+  }
+
+  // Handle graph output updates
+  const handleGraphOutput = (outputImageData) => {
+    if (outputImageData) {
+      const dataURL = imageDataToDataURL(outputImageData)
+      setGraphOutput(dataURL)
+      setEditedImage(dataURL) // Also update editedImage so preview shows
     }
   }
 
@@ -1008,6 +1051,15 @@ function App() {
     }
   }, [currentFrame, mediaType, processedFrames, videoProcessor])
 
+  // Convert originalImage to ImageData when in graph mode
+  useEffect(() => {
+    if (graphMode && originalImage) {
+      dataURLToImageData(originalImage).then(setOriginalImageData)
+    } else {
+      setOriginalImageData(null)
+    }
+  }, [graphMode, originalImage])
+
   function applyContrast(imageData, contrastValue) {
     const data = imageData.data
     const factor = (259 * (contrastValue + 255)) / (255 * (259 - contrastValue))
@@ -1263,9 +1315,9 @@ function App() {
   return (
     <div className="main-container">
       <Rnd
-        style={{ 
-          zIndex: 1000, 
-          backgroundColor: "black", 
+        style={{
+          zIndex: 1000,
+          backgroundColor: "black",
           border: '2px solid',
           borderTopColor: '#808080',
           borderLeftColor: '#808080',
@@ -1275,11 +1327,11 @@ function App() {
         default={{
           x: 0,
           y: 0,
-          width: 240,
-          height: 20,
+          width: graphMode ? 800 : 240,
+          height: graphMode ? 600 : 'auto',
         }}
         dragHandleClassName="drag-handle"
-        enableResizing={{
+        enableResizing={!graphMode ? {
           top: false,
           right: false,
           bottom: false,
@@ -1288,12 +1340,25 @@ function App() {
           bottomRight: false,
           bottomLeft: false,
           topLeft: false,
+        } : {
+          top: true,
+          right: true,
+          bottom: true,
+          left: true,
+          topRight: true,
+          bottomRight: true,
+          bottomLeft: true,
+          topLeft: true,
         }}
       >
         <div className="drag-handle">
-          Settings
+          {graphMode ? 'Graph Editor' : 'Settings'}
         </div>
-        <div className="settings-container">
+        <div className="settings-container"
+          style={{
+            height: graphMode ? 'calc(100% - 30px)' : 'auto',
+            overflow: graphMode ? 'hidden' : 'auto'
+          }}>
           <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
             <button
               onClick={switchToImageMode}
@@ -1333,6 +1398,77 @@ function App() {
             </button>
           </div>
 
+          {mediaType === 'image' && (
+            <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
+              <button
+                onClick={() => setGraphMode(false)}
+                style={{
+                  flex: 1,
+                  background: !graphMode ? '#000000' : '#404040',
+                  border: '2px solid',
+                  borderTopColor: '#ffffff',
+                  borderLeftColor: '#ffffff',
+                  borderBottomColor: '#808080',
+                  borderRightColor: '#808080',
+                  color: '#00ff00',
+                  padding: '4px',
+                  fontSize: '0.6rem',
+                  cursor: 'pointer'
+                }}
+              >
+                Linear
+              </button>
+              <button
+                onClick={() => setGraphMode(true)}
+                style={{
+                  flex: 1,
+                  background: graphMode ? '#000000' : '#404040',
+                  border: '2px solid',
+                  borderTopColor: '#ffffff',
+                  borderLeftColor: '#ffffff',
+                  borderBottomColor: '#808080',
+                  borderRightColor: '#808080',
+                  color: '#00ff00',
+                  padding: '4px',
+                  fontSize: '0.6rem',
+                cursor: 'pointer'
+                }}
+              >
+                Graph
+              </button>
+            </div>
+          )}
+
+          {graphMode && (
+            <div className="file-input-container">
+              <input
+                type="file"
+                id="file-graph"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files[0]
+                  const reader = new FileReader()
+                  reader.onloadend = () => {
+                    setOriginalImage(reader.result)
+                  }
+                  reader.readAsDataURL(file)
+                }}
+              />
+              <label htmlFor="file-graph" className="file-input-label">
+                Choose Image
+              </label>
+            </div>
+          )}
+
+          {graphMode ? (
+            <div style={{ height: '100%' }}>
+              <GraphEditor
+                originalImage={originalImageData}
+                onOutputChange={handleGraphOutput}
+              />
+            </div>
+          ) : (
+          <>
           <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
             <button
               onClick={handleSaveSettings}
@@ -1378,11 +1514,11 @@ function App() {
                 onChange={handleLoadSettings}
                 style={{ display: 'none' }}
               />
-            </label>
-          </div>
+              </label>
+              </div>
 
-          {mediaType === 'image' ? (
-            <>
+              {mediaType === 'image' ? (
+              <>
               <div className="file-input-container">
                 <input
                   type="file"
@@ -1390,7 +1526,7 @@ function App() {
                   accept="image/*"
                   onChange={(e) => {
                     const file = e.target.files[0]
-                    const reader = new FileReader()
+                    const file = e.target.files[0];
                     reader.onloadend = () => {
                       setOriginalImage(reader.result)
                     }
@@ -1511,9 +1647,9 @@ function App() {
                 onChange={(e) => {
                   const file = e.target.files[0]
                   if (file) {
-                    handleVideoUpload(file)
-                  }
-                }}
+                    if (file) {
+                      handleVideoUpload(file)
+                    }
               />
               <label htmlFor="video" className="file-input-label">
                 Choose Video
@@ -2401,19 +2537,728 @@ function App() {
                }}
               >
                Test Mask Cache
-              </button>
-              </div>
+             </button>
+             </div>
             )}
-        </div>
+
+            {/* Show linear mode settings when not in graph mode */}
+            {!graphMode && (
+            <>
+            <CollapsibleSection
+             title="Dithering"
+             isExpanded={expandedSections.dithering}
+             onToggle={() => toggleSection('dithering')}
+            >
+            <div>{'>'} Size_</div>
+            <input
+              type="range"
+              min="1"
+              max="100"
+              value={size}
+              onChange={(e) => {
+                SetSize(parseInt(e.target.value, 10))
+              }}
+            />
+            <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{size}px</div>
+
+            <div>{'>'} Contrast_</div>
+            <input
+              type="range"
+              min="0"
+              max="255"
+              value={contrast}
+              onChange={(e) => {
+                setContrast(parseInt(e.target.value, 10))
+              }}
+            />
+            <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{contrast}</div>
+
+            <div>{'>'} Midtones_</div>
+            <input
+              type="range"
+              min="1"
+              max="255"
+              value={midtones}
+              onChange={(e) => {
+                setMidtones(parseInt(e.target.value, 10))
+              }}
+            />
+            <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{midtones}</div>
+
+            <div>{'>'} Highlights_</div>
+            <input
+              type="range"
+              min="1"
+              max="255"
+              value={highlights}
+              onChange={(e) => {
+                setHighlights(parseInt(e.target.value, 10))
+              }}
+            />
+            <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{highlights}</div>
+
+            <div>{'>'} Luminance_Threshold_</div>
+            <input
+              type="range"
+              min="0"
+              max="255"
+              value={threshold}
+              onChange={(e) => {
+                setThreshold(parseInt(e.target.value, 10))
+              }}
+            />
+
+            <div>{'>'} Algorithm_</div>
+            <select
+              value={algorithm}
+              onChange={(e) => {
+                setAlgorithm(e.target.value)
+              }}
+            >
+              <option value="floydSteinberg">Floyd-Steinberg</option>
+              <option value="floydSteinbergSerpentine">Floyd-Steinberg (Serpentine)</option>
+              <option value="falseFloydSteinberg">False Floyd-Steinberg</option>
+              <option value="jarvisJudiceNinke">Jarvis-Judice-Ninke</option>
+              <option value="atkinson">Atkinson</option>
+              <option value="stucki">Stucki</option>
+              <option value="burkes">Burkes</option>
+              <option value="sierra">Sierra</option>
+              <option value="twoRowSierra">Two-Row Sierra</option>
+              <option value="sierraLite">Sierra Lite</option>
+              <option value="bayerOrdered">Bayer Ordered (8x8)</option>
+              <option value="bayerOrdered4x4">Bayer Ordered (4x4)</option>
+              <option value="bayerOrdered16x16">Bayer Ordered (16x16)</option>
+              <option value="randomOrdered">Random Ordered</option>
+              <option value="bitTone">Bit-Tone</option>
+              <option value="crossPlus">Cross-Plus</option>
+              <option value="asciiArt">ASCII Art</option>
+              <option value="halftoneCircles">Halftone Circles</option>
+              <option value="grain">Grain</option>
+            </select>
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              title="Color"
+              isExpanded={expandedSections.color}
+              onToggle={() => toggleSection('color')}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <input
+                  type="checkbox"
+                  checked={rgbModeEnabled}
+                  onChange={(e) => setRgbModeEnabled(e.target.checked)}
+                  style={{
+                    width: '15px',
+                    height: '15px',
+                    cursor: 'pointer',
+                    accentColor: 'black'
+                  }}
+                />
+                <div style={{ margin: 0 }}>{'>'} RGB_Mode_</div>
+              </div>
+
+              {rgbModeEnabled && (
+                <div>
+                  <div>{'>'} R_</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="255"
+                    value={redValue}
+                    onChange={(e) => {
+                      setRedValue(parseInt(e.target.value, 10))
+                    }}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{redValue}</div>
+
+                  <div>{'>'} G_</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="255"
+                    value={greenValue}
+                    onChange={(e) => {
+                      setGreenValue(parseInt(e.target.value, 10))
+                    }}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{greenValue}</div>
+
+                  <div>{'>'} B_</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="255"
+                    value={blueValue}
+                    onChange={(e) => {
+                      setBlueValue(parseInt(e.target.value, 10))
+                    }}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{blueValue}</div>
+                </div>
+              )}
+
+              {!rgbModeEnabled && (
+                <div>
+                  <div>{'>'} Color_Mode_</div>
+                  <select
+                    value={colorMode}
+                    onChange={(e) => {
+                      setColorMode(e.target.value)
+                    }}
+                  >
+                    <option value="rgb">RGB</option>
+                    <option value="single">Single Color</option>
+                    <option value="palette">Palette</option>
+                  </select>
+
+                  {colorMode === 'single' && (
+                    <>
+                      <div>{'>'} Single_Color_</div>
+                      <input
+                        type="color"
+                        value={singleColor}
+                        onChange={(e) => setSingleColor(e.target.value)}
+                        style={{ width: "100%", marginBottom: '5px' }}
+                      />
+                    </>
+                  )}
+
+                  {colorMode === 'palette' && (
+                    <>
+                      <div>{'>'} Palette_</div>
+                      <select
+                        value={selectedPalette}
+                        onChange={(e) => {
+                          setSelectedPalette(e.target.value)
+                        }}
+                      >
+                        {Object.keys(PRESET_PALETTES).map((paletteName) => (
+                          <option key={paletteName} value={paletteName}>
+                            {paletteName}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {rgbModeEnabled && (
+                <CollapsibleSection
+                  title="Color_Adjustments"
+                  isExpanded={expandedSections.colorAdjustments}
+                  onToggle={() => toggleSection('colorAdjustments')}
+                >
+                  <div>{'>'} Hue_Shift_</div>
+                  <input
+                    type="range"
+                    min="-180"
+                    max="180"
+                    value={hue}
+                    onChange={(e) => setHue(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{hue}°</div>
+
+                  <div>{'>'} Vibrance_</div>
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    value={vibrance}
+                    onChange={(e) => setVibrance(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{vibrance}%</div>
+
+                  <div>{'>'} Saturation_</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="200"
+                    value={saturation}
+                    onChange={(e) => setSaturation(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{saturation}%</div>
+                </CollapsibleSection>
+              )}
+
+              {!rgbModeEnabled && (
+                <CollapsibleSection
+                  title="Color_Adjustments"
+                  isExpanded={expandedSections.colorAdjustments}
+                  onToggle={() => toggleSection('colorAdjustments')}
+                >
+                  <div>{'>'} Hue_Shift_</div>
+                  <input
+                    type="range"
+                    min="-180"
+                    max="180"
+                    value={hue}
+                    onChange={(e) => setHue(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{hue}°</div>
+
+                  <div>{'>'} Vibrance_</div>
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    value={vibrance}
+                    onChange={(e) => setVibrance(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{vibrance}%</div>
+
+                  <div>{'>'} Saturation_</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="200"
+                    value={saturation}
+                    onChange={(e) => setSaturation(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{saturation}%</div>
+                </CollapsibleSection>
+              )}
+
+            <CollapsibleSection
+              title="Effects"
+              isExpanded={expandedSections.effects}
+              onToggle={() => toggleSection('effects')}
+            >
+              <div>{'>'} Bloom_</div>
+              <input
+                type="range"
+                min="0"
+                max="200"
+                value={bloom}
+                onChange={(e) => {
+                  setBloom(parseInt(e.target.value, 10))
+                }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="checkbox"
+                  checked={crtEnabled}
+                  onChange={(e) => setCrtEnabled(e.target.checked)}
+                  style={{
+                    width: '15px',
+                    height: '15px',
+                    cursor: 'pointer',
+                    accentColor: 'black'
+                  }}
+                />
+                <div style={{ margin: 0 }}>{'>'} CRT_Effect_</div>
+              </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              title="Background_Removal"
+              isExpanded={expandedSections.backgroundRemoval}
+              onToggle={() => toggleSection('backgroundRemoval')}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <input
+                  type="checkbox"
+                  checked={backgroundRemovalEnabled}
+                  onChange={(e) => {
+                    setBackgroundRemovalEnabled(e.target.checked)
+                    if (!e.target.checked) {
+                      clearMaskCache()
+                    }
+                  }}
+                  style={{
+                    width: '15px',
+                    height: '15px',
+                    cursor: 'pointer',
+                    accentColor: 'black'
+                  }}
+                />
+                <div style={{ margin: 0 }}>{'>'} Remove_Background_</div>
+              </div>
+
+              {backgroundRemovalEnabled && (
+                <>
+                  <div>{'>'} Mask_Sensitivity_</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="255"
+                    value={maskSensitivity}
+                    onChange={(e) => setMaskSensitivity(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>Threshold: {maskSensitivity}</div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                    <input
+                      type="checkbox"
+                      checked={featherEdgesEnabled}
+                      onChange={(e) => setFeatherEdgesEnabled(e.target.checked)}
+                      style={{
+                        width: '15px',
+                        height: '15px',
+                        cursor: 'pointer',
+                        accentColor: 'black'
+                      }}
+                    />
+                    <div style={{ margin: 0 }}>{'>'} Feather_Edges_</div>
+                  </div>
+
+                  {featherEdgesEnabled && (
+                    <>
+                      <div>{'>'} Feather_Amount_</div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="20"
+                        value={featherAmount}
+                        onChange={(e) => setFeatherAmount(parseInt(e.target.value, 10))}
+                      />
+                      <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{featherAmount}px</div>
+                    </>
+                  )}
+                </>
+              )}
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              title="Text_Overlay"
+              isExpanded={expandedSections.textOverlay}
+              onToggle={() => toggleSection('textOverlay')}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <input
+                  type="checkbox"
+                  checked={textOverlayEnabled}
+                  onChange={(e) => setTextOverlayEnabled(e.target.checked)}
+                  style={{
+                    width: '15px',
+                    height: '15px',
+                    cursor: 'pointer',
+                    accentColor: 'black'
+                  }}
+                />
+                <div style={{ margin: 0 }}>{'>'} Enable_Text_Overlay_</div>
+              </div>
+
+              {textOverlayEnabled && (
+                <>
+                  <div>{'>'} Text_Content_</div>
+                  <input
+                    type="text"
+                    value={textContent}
+                    onChange={(e) => setTextContent(e.target.value)}
+                    style={{
+                      width: '100%',
+                      background: '#000',
+                      color: '#fff',
+                      border: '1px solid #808080',
+                      padding: '4px',
+                      fontSize: '0.6rem',
+                      marginBottom: '5px'
+                    }}
+                  />
+
+                  <div>{'>'} Font_Family_</div>
+                  <select
+                    value={textFontFamily}
+                    onChange={(e) => setTextFontFamily(e.target.value)}
+                  >
+                    {FONT_FAMILIES.map(font => (
+                      <option key={font} value={font}>{font}</option>
+                    ))}
+                  </select>
+
+                  <div>{'>'} Font_Size_</div>
+                  <input
+                    type="range"
+                    min="12"
+                    max="200"
+                    value={textFontSize}
+                    onChange={(e) => setTextFontSize(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{textFontSize}px</div>
+
+                  <div>{'>'} Text_Color_</div>
+                  <input
+                    type="color"
+                    value={textColor}
+                    onChange={(e) => setTextColor(e.target.value)}
+                    style={{ width: "100%", marginBottom: '5px' }}
+                  />
+
+                  <div>{'>'} Stroke_Color_</div>
+                  <input
+                    type="color"
+                    value={textStrokeColor}
+                    onChange={(e) => setTextStrokeColor(e.target.value)}
+                    style={{ width: "100%", marginBottom: '5px' }}
+                  />
+
+                  <div>{'>'} Stroke_Width_</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="10"
+                    value={textStrokeWidth}
+                    onChange={(e) => setTextStrokeWidth(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{textStrokeWidth}px</div>
+
+                  <div>{'>'} Position_Type_</div>
+                  <select
+                    value={textPositionType}
+                    onChange={(e) => setTextPositionType(e.target.value)}
+                  >
+                    <option value="percent">Percentage</option>
+                    <option value="pixels">Pixels</option>
+                  </select>
+
+                  <div>{'>'} Position_X_</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max={textPositionType === 'percent' ? 100 : 1920}
+                    value={textPositionX}
+                    onChange={(e) => setTextPositionX(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>
+                    {textPositionX}{textPositionType === 'percent' ? '%' : 'px'}
+                  </div>
+
+                  <div>{'>'} Position_Y_</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max={textPositionType === 'percent' ? 100 : 1080}
+                    value={textPositionY}
+                    onChange={(e) => setTextPositionY(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>
+                    {textPositionY}{textPositionType === 'percent' ? '%' : 'px'}
+                  </div>
+
+                  <div>{'>'} Alignment_</div>
+                  <select
+                    value={textAlignment}
+                    onChange={(e) => setTextAlignment(e.target.value)}
+                  >
+                    <option value="left">Left</option>
+                    <option value="center">Center</option>
+                    <option value="right">Right</option>
+                  </select>
+
+                  <div>{'>'} Animation_Type_</div>
+                  <select
+                    value={textAnimationType}
+                    onChange={(e) => setTextAnimationType(e.target.value)}
+                  >
+                    {TEXT_ANIMATION_TYPES.map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+
+                  {textAnimationType !== 'none' && (
+                    <>
+                      <div>{'>'} Animation_Duration_(s)_</div>
+                      <input
+                        type="range"
+                        min="0.1"
+                        max="5"
+                        step="0.1"
+                        value={textAnimationDuration}
+                        onChange={(e) => setTextAnimationDuration(parseFloat(e.target.value))}
+                      />
+                      <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{textAnimationDuration}s</div>
+
+                      <div>{'>'} Start_Time_(s)_</div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="10"
+                        step="0.1"
+                        value={textStartTime}
+                        onChange={(e) => setTextStartTime(parseFloat(e.target.value))}
+                      />
+                      <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{textStartTime}s</div>
+
+                      <div>{'>'} End_Time_(s)_</div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="10"
+                        step="0.1"
+                        value={textEndTime}
+                        onChange={(e) => setTextEndTime(parseFloat(e.target.value))}
+                      />
+                      <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{textEndTime}s</div>
+                    </>
+                  )}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                    <input
+                      type="checkbox"
+                      checked={textShadow}
+                      onChange={(e) => setTextShadow(e.target.checked)}
+                      style={{
+                        width: '15px',
+                        height: '15px',
+                        cursor: 'pointer',
+                        accentColor: 'black'
+                      }}
+                    />
+                    <div style={{ margin: 0 }}>{'>'} Text_Shadow_</div>
+                  </div>
+                </>
+              )}
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              title="Video_Input"
+              isExpanded={expandedSections.videoInput}
+              onToggle={() => toggleSection('videoInput')}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <input
+                  type="radio"
+                  id="video-upload"
+                  name="video-source"
+                  checked={videoSource === 'upload'}
+                  onChange={() => setVideoSource('upload')}
+                  style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: 'black' }}
+                />
+                <label htmlFor="video-upload" style={{ cursor: 'pointer' }}>Upload Video</label>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <input
+                  type="radio"
+                  id="video-image"
+                  name="video-source"
+                  checked={videoSource === 'image'}
+                  onChange={() => setVideoSource('image')}
+                  style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: 'black' }}
+                />
+                <label htmlFor="video-image" style={{ cursor: 'pointer' }}>Image to Video</label>
+              </div>
+
+              {videoSource === 'image' && (
+                <>
+                  <div>{'>'} Frame_Rate_</div>
+                  <input
+                    type="range"
+                    min="10"
+                    max="60"
+                    value={frameRate}
+                    onChange={(e) => setFrameRate(parseInt(e.target.value, 10))}
+                  />
+                  <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{frameRate} fps</div>
+                </>
+              )}
+
+              {videoSource === 'upload' && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                    <input
+                      type="checkbox"
+                      checked={glitchEnabled}
+                      onChange={(e) => setGlitchEnabled(e.target.checked)}
+                      style={{
+                        width: '15px',
+                        height: '15px',
+                        cursor: 'pointer',
+                        accentColor: 'black'
+                      }}
+                    />
+                    <div style={{ margin: 0 }}>{'>'} Enable_Glitch_</div>
+                  </div>
+
+                  {glitchEnabled && (
+                    <>
+                      <div>{'>'} Glitch_Effect_</div>
+                      <select
+                        value={selectedGlitchEffect}
+                        onChange={(e) => setSelectedGlitchEffect(e.target.value)}
+                      >
+                        <option value="dataMosh">Data Mosh</option>
+                        <option value="pixelSort">Pixel Sort</option>
+                        <option value="chromaticAberration">Chromatic Aberration</option>
+                        <option value="digitalCorruption">Digital Corruption</option>
+                      </select>
+
+                      <div>{'>'} Glitch_Intensity_</div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={glitchIntensity * 100}
+                        onChange={(e) => setGlitchIntensity(parseInt(e.target.value, 10) / 100)}
+                        disabled={videoSource === 'image'}
+                      />
+                      <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{Math.round(glitchIntensity * 100)}%</div>
+                    </>
+                  )}
+                </>
+              )}
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              title="Glitch_Effects"
+              isExpanded={expandedSections.glitchEffects}
+              onToggle={() => toggleSection('glitchEffects')}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <input
+                  type="checkbox"
+                  checked={glitchEnabled}
+                  onChange={(e) => setGlitchEnabled(e.target.checked)}
+                  style={{
+                    width: '15px',
+                    height: '15px',
+                    cursor: 'pointer',
+                    accentColor: 'black'
+                  }}
+                />
+                <div style={{ margin: 0 }}>{'>'} Enable_Glitch_Effects_</div>
+              </div>
+
+              {glitchEnabled && (
+                <>
+                  <div>{'>'} Glitch_Type_</div>
+                  <select
+                    value={selectedGlitchEffect}
+                    onChange={(e) => setSelectedGlitchEffect(e.target.value)}
+                    disabled={videoSource === 'image'}
+                  >
+                    <option value="dataMosh">Data Mosh</option>
+                    <option value="pixelSort">Pixel Sort</option>
+                    <option value="chromaticAberration">Chromatic Aberration</option>
+                    <option value="digitalCorruption">Digital Corruption</option>
+                  </select>
+
+                  <div>{'>'} Intensity_</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={glitchIntensity * 100}
+                    onChange={(e) => setGlitchIntensity(parseInt(e.target.value, 10) / 100)}
+                    disabled={videoSource === 'image'}
+                  />
+                </>
+              )}
+            </CollapsibleSection>
+
+            </>)
+            )}
+          )}
       </Rnd>
       <div style={{
-        height:"100vh", 
-        width:'100vw', 
-        backgroundColor:"black", 
-        position: "fixed", 
-        top: 0, 
-        left: 0, 
-        zIndex: 0, 
+        height:"100vh",
+        width:'100vw',
+        backgroundColor:"black",
+        position: "fixed",
+        top: 0,
+        left: 0,
+        zIndex: 0,
 
         display: 'flex',
         justifyContent: 'center',
