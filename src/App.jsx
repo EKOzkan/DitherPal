@@ -3246,8 +3246,8 @@ function App() {
                 </>
               )}
             </CollapsibleSection>
-            )}
           </>
+            )}
       </Rnd>
       <div style={{
         height:"100vh",
