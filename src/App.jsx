@@ -1526,7 +1526,6 @@ function App() {
                   accept="image/*"
                   onChange={(e) => {
                     const file = e.target.files[0]
-                    const file = e.target.files[0];
                     reader.onloadend = () => {
                       setOriginalImage(reader.result)
                     }
@@ -1647,9 +1646,9 @@ function App() {
                 onChange={(e) => {
                   const file = e.target.files[0]
                   if (file) {
-                    if (file) {
-                      handleVideoUpload(file)
-                    }
+                    handleVideoUpload(file)
+                  }
+                }}
               />
               <label htmlFor="video" className="file-input-label">
                 Choose Video
@@ -3246,10 +3245,9 @@ function App() {
                 </>
               )}
             </CollapsibleSection>
-
-            </>)
+            </>
             )}
-          )}
+          </>
       </Rnd>
       <div style={{
         height:"100vh",
