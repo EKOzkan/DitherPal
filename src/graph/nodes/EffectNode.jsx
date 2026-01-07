@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 import { Handle, Position } from 'reactflow'
 import { useState } from 'react'
 
@@ -122,6 +123,7 @@ export function EffectNode({ data }) {
         value={algorithm}
         onChange={handleAlgorithmChange}
         style={selectStyle}
+        className="nodrag"
       >
         {ALGORITHMS.map((algo) => (
           <option key={algo.id} value={algo.id}>
@@ -137,6 +139,7 @@ export function EffectNode({ data }) {
           </label>
           <input
             type="range"
+            className="nodrag"
             min="0"
             max="255"
             value={currentParams.threshold || 128}
@@ -153,6 +156,7 @@ export function EffectNode({ data }) {
           </label>
           <input
             type="range"
+            className="nodrag"
             min="0"
             max="1"
             step="0.01"
@@ -170,6 +174,7 @@ export function EffectNode({ data }) {
           </label>
           <input
             type="range"
+            className="nodrag"
             min="0.5"
             max="3"
             step="0.1"
@@ -190,6 +195,7 @@ export function EffectNode({ data }) {
           </label>
           <input
             type="range"
+            className="nodrag"
             min="1"
             max="50"
             value={currentParams.size || 10}

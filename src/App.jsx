@@ -1331,6 +1331,7 @@ function App() {
           height: graphMode ? 600 : 'auto',
         }}
         dragHandleClassName="drag-handle"
+        cancel="input,select,button,textarea,label,.nodrag"
         enableResizing={!graphMode ? {
           top: false,
           right: false,
@@ -3248,6 +3249,8 @@ function App() {
             </CollapsibleSection>
           </>
             )}
+          </>
+        </div>
       </Rnd>
       <div style={{
         height:"100vh",
