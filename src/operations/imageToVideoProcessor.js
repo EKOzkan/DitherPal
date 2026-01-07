@@ -1,6 +1,7 @@
 // Image to video processor with animated dithering effects
 import { PRESET_PALETTES, hexToRgb } from './palettes'
 import { applyPaletteMapping } from './rgbProcessing'
+import { downscaleImageData, upscaleImageData } from './algorithms.jsx'
 
 export class ImageToVideoProcessor {
   constructor() {
@@ -219,6 +220,12 @@ export class ImageToVideoProcessor {
       imageData.height
     )
 
+    // Apply pixel size scaling before dithering
+    const pixelSize = options.pixelSize || 1
+    if (pixelSize > 1) {
+      processedData = downscaleImageData(processedData, pixelSize)
+    }
+
     // Apply adjustments
     this.applyContrast(processedData, options.contrast || 128)
     this.applyMidtones(processedData, options.midtones || 128)
@@ -235,6 +242,11 @@ export class ImageToVideoProcessor {
       ditheredData = algorithm(processedData)
     } else {
       ditheredData = processedData
+    }
+
+    // Upscale back if pixelSize was used
+    if (pixelSize > 1) {
+      ditheredData = upscaleImageData(ditheredData, imageData.width, imageData.height)
     }
 
     // Apply color mode or RGB palette mapping

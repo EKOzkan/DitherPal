@@ -1043,3 +1043,61 @@ export const digitalCorruption = (imageData, options = {}) => {
 
   return out;
 };
+
+export const downscaleImageData = (imageData, pixelSize) => {
+  if (pixelSize <= 1) return imageData;
+
+  const width = imageData.width;
+  const height = imageData.height;
+  const newWidth = Math.max(1, Math.floor(width / pixelSize));
+  const newHeight = Math.max(1, Math.floor(height / pixelSize));
+  const srcData = imageData.data;
+  const out = new ImageData(newWidth, newHeight);
+  const outData = out.data;
+
+  for (let y = 0; y < newHeight; y++) {
+    for (let x = 0; x < newWidth; x++) {
+      const outIdx = (y * newWidth + x) * 4;
+      
+      // Sample the center pixel of the block for performance and crispness
+      const srcX = Math.floor(x * pixelSize + pixelSize / 2);
+      const srcY = Math.floor(y * pixelSize + pixelSize / 2);
+      const srcIdx = (Math.min(height - 1, srcY) * width + Math.min(width - 1, srcX)) * 4;
+
+      outData[outIdx] = srcData[srcIdx];
+      outData[outIdx + 1] = srcData[srcIdx + 1];
+      outData[outIdx + 2] = srcData[srcIdx + 2];
+      outData[outIdx + 3] = srcData[srcIdx + 3];
+    }
+  }
+  return out;
+};
+
+export const upscaleImageData = (imageData, targetWidth, targetHeight) => {
+  const width = imageData.width;
+  const height = imageData.height;
+  
+  if (width === targetWidth && height === targetHeight) return imageData;
+
+  const srcData = imageData.data;
+  const out = new ImageData(targetWidth, targetHeight);
+  const outData = out.data;
+
+  const scaleX = width / targetWidth;
+  const scaleY = height / targetHeight;
+
+  for (let y = 0; y < targetHeight; y++) {
+    for (let x = 0; x < targetWidth; x++) {
+      const outIdx = (y * targetWidth + x) * 4;
+      const srcX = Math.floor(x * scaleX);
+      const srcY = Math.floor(y * scaleY);
+      const srcIdx = (Math.min(height - 1, srcY) * width + Math.min(width - 1, srcX)) * 4;
+
+      outData[outIdx] = srcData[srcIdx];
+      outData[outIdx + 1] = srcData[srcIdx + 1];
+      outData[outIdx + 2] = srcData[srcIdx + 2];
+      outData[outIdx + 3] = srcData[srcIdx + 3];
+    }
+  }
+  return out;
+};
