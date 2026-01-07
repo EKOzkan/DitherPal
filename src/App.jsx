@@ -22,7 +22,9 @@ import {
   crossPlus,
   asciiArt,
   halftoneCircles,
-  grain
+  grain,
+  downscaleImageData,
+  upscaleImageData
 } from './operations/algorithms'
 import { PRESET_PALETTES, hexToRgb } from './operations/palettes'
 import { applyPaletteMapping } from './operations/rgbProcessing'
@@ -58,6 +60,7 @@ function App() {
   const [imageAnimationCycles, setImageAnimationCycles] = useState(1)
   const [imageAnimationIntensity, setImageAnimationIntensity] = useState(0.5)
   const [size, SetSize] = useState(10)
+  const [pixelSize, setPixelSize] = useState(4)
   const [contrast, setContrast] = useState(128)
   const [midtones, setMidtones] = useState(128)
   const [highlights, setHighlights] = useState(128)
@@ -454,6 +457,7 @@ function App() {
       // Generate animated frames with parameter animation
       const processed = await processor.generateAnimatedFrames(algorithmFunction, {
         size,
+        pixelSize,
         contrast,
         midtones,
         highlights,
@@ -601,6 +605,7 @@ function App() {
         glitchIntensity,
         selectedGlitchEffect,
         size,
+        pixelSize,
         contrast,
         midtones,
         highlights,
@@ -853,11 +858,16 @@ function App() {
 
         // Apply selected dithering algorithm
         let ditheredData
-        const processedData = new ImageData(
+        let processedData = new ImageData(
           new Uint8ClampedArray(workingImageData.data),
           workingImageData.width,
           workingImageData.height
         )
+
+        // Apply pixel size scaling before dithering
+        if (pixelSize > 1) {
+          processedData = downscaleImageData(processedData, pixelSize)
+        }
 
         // Apply adjustments in order for maximum crispness
         applyContrast(processedData, contrast)
@@ -932,6 +942,11 @@ function App() {
             break
           default:
             ditheredData = processedData
+        }
+
+        // Upscale back if pixelSize was used
+        if (pixelSize > 1) {
+          ditheredData = upscaleImageData(ditheredData, workingImageData.width, workingImageData.height)
         }
 
         // Apply color mode or RGB palette mapping
@@ -1039,7 +1054,7 @@ function App() {
       image.src = originalImage
     }
     console.log("effect applied with algorithm:", algorithm)
-  }, [originalImage, size, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled, rgbModeEnabled, selectedPalette, customPaletteRenderKey, textOverlayEnabled, textContent, textFontFamily, textFontSize, textColor, textStrokeColor, textStrokeWidth, textPositionX, textPositionY, textPositionType, textAlignment, textAnimationType, textAnimationDuration, textStartTime, textEndTime, textShadow, hue, vibrance, saturation, backgroundRemovalEnabled, maskSensitivity, featherEdgesEnabled, featherAmount]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [originalImage, size, pixelSize, contrast, midtones, highlights, threshold, luminanceThresholdEnabled, algorithm, bloom, colorMode, redValue, greenValue, blueValue, singleColor, crtEnabled, rgbModeEnabled, selectedPalette, customPaletteRenderKey, textOverlayEnabled, textContent, textFontFamily, textFontSize, textColor, textStrokeColor, textStrokeWidth, textPositionX, textPositionY, textPositionType, textAlignment, textAnimationType, textAnimationDuration, textStartTime, textEndTime, textShadow, hue, vibrance, saturation, backgroundRemovalEnabled, maskSensitivity, featherEdgesEnabled, featherAmount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update frame preview when current frame changes
   useEffect(() => {
@@ -1672,6 +1687,21 @@ function App() {
                 SetSize(parseInt(e.target.value, 10))
               }}
             />
+            <div style={{ fontSize: '0.5rem', textAlign: 'center', marginBottom: '8px' }}>{size}px</div>
+
+            <div>{'>'} Pixel_Size_</div>
+            <input
+              type="range"
+              min="1"
+              max="50"
+              step="1"
+              value={pixelSize}
+              onChange={(e) => {
+                setPixelSize(parseInt(e.target.value, 10))
+              }}
+            />
+            <div style={{ fontSize: '0.5rem', textAlign: 'center', marginBottom: '8px' }}>{pixelSize}px</div>
+
             <div>{'>'} Dithering_Algorithm_</div>
             <select
               value={algorithm}
@@ -2560,6 +2590,19 @@ function App() {
               }}
             />
             <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{size}px</div>
+
+            <div style={{ marginTop: '8px' }}>{'>'} Pixel_Size_</div>
+            <input
+              type="range"
+              min="1"
+              max="50"
+              step="1"
+              value={pixelSize}
+              onChange={(e) => {
+                setPixelSize(parseInt(e.target.value, 10))
+              }}
+            />
+            <div style={{ fontSize: '0.5rem', textAlign: 'center' }}>{pixelSize}px</div>
 
             <div>{'>'} Contrast_</div>
             <input

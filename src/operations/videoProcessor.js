@@ -2,6 +2,7 @@
 import { PRESET_PALETTES, hexToRgb } from './palettes'
 import { applyPaletteMapping } from './rgbProcessing'
 import { generateMask, removeBackground } from './backgroundRemoval'
+import { downscaleImageData, upscaleImageData } from './algorithms.jsx'
 
 export class VideoProcessor {
   constructor() {
@@ -235,6 +236,12 @@ export class VideoProcessor {
       imageData.height
     )
 
+    // Apply pixel size scaling before dithering
+    const pixelSize = options.pixelSize || 1
+    if (pixelSize > 1) {
+      processedData = downscaleImageData(processedData, pixelSize)
+    }
+
     // Apply background removal if enabled
     if (options.backgroundRemovalEnabled) {
       try {
@@ -272,6 +279,11 @@ export class VideoProcessor {
       ditheredData = algorithm(processedData)
     } else {
       ditheredData = processedData
+    }
+
+    // Upscale back if pixelSize was used
+    if (pixelSize > 1) {
+      ditheredData = upscaleImageData(ditheredData, imageData.width, imageData.height)
     }
 
     // Apply color mode or RGB palette mapping
